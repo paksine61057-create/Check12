@@ -1,0 +1,7 @@
+{
+  "name": "Thai OMR Smart Grader",
+  "description": "ระบบตรวจข้อสอบ OMR อัจฉริยะสำหรับครูไทย รองรับการตรวจผ่านภาพถ่ายด้วย Gemini Vision AI ตรวจจับตัวเลือก ก ข ค ง แม่นยำสูง",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
