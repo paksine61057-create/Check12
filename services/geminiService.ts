@@ -3,18 +3,20 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Choice } from "../types";
 
 /**
- * ฟังก์ชันดึงเฉพาะ JSON object ออกจากข้อความ (ช่วยป้องกันกรณี AI แถมข้อความอื่นมา)
+ * ฟังก์ชันดึงเฉพาะ JSON object ออกจากข้อความให้แม่นยำที่สุด
  */
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
-  // หาตำแหน่ง { ตัวแรก และ } ตัวสุดท้าย
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  
-  if (start !== -1 && end !== -1 && end > start) {
-    return text.substring(start, end + 1);
+  try {
+    // พยายามหาเครื่องหมายปีกกาเพื่อตัดเอาเฉพาะส่วน JSON
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) {
+      return text.substring(start, end + 1);
+    }
+  } catch (e) {
+    console.error("JSON Clean Error:", e);
   }
-  
   return text.replace(/```json/g, "").replace(/```/g, "").trim();
 };
 
@@ -30,20 +32,16 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // ตรวจสอบว่ามี API Key หรือไม่ก่อนเริ่ม
-    if (!process.env.API_KEY) {
-      return { answers: [], error: "ไม่พบ API Key ในระบบ กรุณาเชื่อมต่อ API", isAuthError: true };
-    }
-
+    // สร้าง instance ใหม่ทุกครั้งเพื่อให้ใช้ Key ล่าสุดที่ระบบฉีดเข้ามา
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const systemInstruction = isKey 
-      ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบที่ถูกต้องในรูปแบบ JSON เท่านั้น`
-      : `คุณคือผู้เชี่ยวชาญด้าน OMR และ OCR ภาษาไทย หน้าที่ของคุณคืออ่านเลขที่ ชื่อ และคำตอบของนักเรียนจากภาพถ่ายกระดาษคำตอบ และส่งคืนข้อมูลในรูปแบบ JSON เท่านั้น`;
+      ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบในรูปแบบ JSON { "questions": [...] }`
+      : `คุณคือผู้เชี่ยวชาญด้าน OMR และ OCR ภาษาไทย หน้าที่ของคุณคืออ่านเลขที่ ชื่อ และคำตอบนักเรียน ส่งคืน JSON { "studentNumber": "...", "studentName": "...", "questions": [...] }`;
 
     const userPrompt = isKey
-      ? `วิเคราะห์ภาพกระดาษคำตอบนี้เพื่อหา "เฉลย" ข้อ 1 ถึง ${totalQuestions} โดยตัวเลือกที่ระบายคือ ก, ข, ค, หรือ ง`
-      : `อ่านเลขที่ (Student ID), ชื่อ-นามสกุล และวิเคราะห์คำตอบข้อ 1 ถึง ${totalQuestions} จากกระดาษคำตอบนี้`;
+      ? `วิเคราะห์ภาพเฉลยข้อ 1 ถึง ${totalQuestions} โดยตัวเลือกคือ ก, ข, ค, หรือ ง`
+      : `อ่านข้อมูลและวิเคราะห์คำตอบข้อ 1 ถึง ${totalQuestions} จากกระดาษคำตอบนี้`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -79,11 +77,9 @@ export const analyzeAnswerSheet = async (
       }
     });
 
-    const rawText = response.text;
-    if (!rawText) throw new Error("AI ไม่คืนค่าข้อมูล");
+    if (!response.text) throw new Error("Empty response from AI");
     
-    const cleanedText = cleanJsonResponse(rawText);
-    const data = JSON.parse(cleanedText);
+    const data = JSON.parse(cleanJsonResponse(response.text));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
     
     if (data.questions && Array.isArray(data.questions)) {
@@ -106,24 +102,18 @@ export const analyzeAnswerSheet = async (
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("OMR API Error:", err);
+    console.error("OMR Service Error:", err);
     
-    const errorMsg = err.message || "";
-    let friendlyError = "ประมวลผลล้มเหลว กรุณาตรวจสอบความชัดเจนของภาพถ่าย";
+    const msg = err.message || "";
+    let friendlyError = "ประมวลผลล้มเหลว กรุณาตรวจสอบความชัดเจนของภาพ";
     let isAuthError = false;
 
-    // ตรวจสอบ Error ที่เกี่ยวกับสิทธิ์การใช้งาน
-    if (
-      errorMsg.includes("API_KEY") || 
-      errorMsg.includes("unauthorized") || 
-      errorMsg.includes("401") || 
-      errorMsg.includes("not found") || 
-      errorMsg.includes("Key")
-    ) {
-      friendlyError = "ผิดพลาด: ปัญหาเกี่ยวกับ API Key กรุณาเชื่อมต่อ API ใหม่";
+    // ตรวจจับข้อผิดพลาดเรื่อง API Key
+    if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("API_KEY") || msg.includes("not found") || msg.includes("Key")) {
+      friendlyError = "ต้องเชื่อมต่อ API Key เพื่อใช้งาน (Requested entity was not found)";
       isAuthError = true;
-    } else if (errorMsg.includes("429") || errorMsg.includes("quota")) {
-      friendlyError = "ใช้งานเกินขีดจำกัด (Rate Limit) กรุณารอสักครู่แล้วลองใหม่";
+    } else if (msg.includes("429")) {
+      friendlyError = "เรียกใช้งานถี่เกินไป กรุณารอสักครู่";
     }
 
     return { answers: [], error: friendlyError, isAuthError };
