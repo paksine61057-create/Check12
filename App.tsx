@@ -35,15 +35,12 @@ const App: React.FC = () => {
   // ตรวจสอบ API Key สถานะ
   useEffect(() => {
     const checkKey = async () => {
-      // ตรวจสอบทั้งจาก environment และ window.aistudio
-      const hasEnvKey = !!process.env.API_KEY;
-      let hasSelected = true;
-      
       if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
-        hasSelected = await window.aistudio.hasSelectedApiKey();
+        const has = await window.aistudio.hasSelectedApiKey();
+        setIsApiKeySelected(has || !!process.env.API_KEY);
+      } else {
+        setIsApiKeySelected(!!process.env.API_KEY);
       }
-      
-      setIsApiKeySelected(hasEnvKey || hasSelected);
     };
     checkKey();
   }, []);
@@ -51,7 +48,6 @@ const App: React.FC = () => {
   const handleOpenKeySelector = async () => {
     if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
       await window.aistudio.openSelectKey();
-      // สมมติว่าสำเร็จตามกฎ race condition
       setIsApiKeySelected(true);
       setErrorMessage(null);
     }
@@ -114,9 +110,7 @@ const App: React.FC = () => {
       
       if (data.error) {
         setErrorMessage(data.error);
-        if (data.error.includes("API Key") || data.error.includes("ผิดพลาด")) {
-          setIsApiKeySelected(false);
-        }
+        if (data.isAuthError) setIsApiKeySelected(false);
         return;
       }
 
@@ -124,7 +118,7 @@ const App: React.FC = () => {
       setActiveSubject(updatedSubject);
       setSubjects(subjects.map(s => s.id === updatedSubject.id ? updatedSubject : s));
     } catch (err) {
-      setErrorMessage("เกิดข้อผิดพลาดทางเทคนิคในการประมวลผล กรุณาลองใหม่อีกครั้ง");
+      setErrorMessage("เกิดข้อผิดพลาดทางเทคนิคในการประมวลผล");
     } finally {
       setIsLoading(false);
       setProcessingProgress({ current: 0, total: 0 });
@@ -145,7 +139,11 @@ const App: React.FC = () => {
         const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, false);
         
         if (data.error) {
-          if (i === 0 && files.length === 1) setErrorMessage(data.error);
+          if (data.isAuthError) {
+            setErrorMessage(data.error);
+            setIsApiKeySelected(false);
+            break;
+          }
           continue;
         }
 
@@ -170,9 +168,7 @@ const App: React.FC = () => {
         });
       }
 
-      if (newResults.length === 0 && files.length > 0) {
-        if (!errorMessage) setErrorMessage("ไม่สามารถประมวลผลกระดาษคำตอบได้ กรุณาตรวจสอบความชัดเจนของภาพถ่าย");
-      } else {
+      if (newResults.length > 0) {
         const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
         const combinedResults = [...activeSubject.results, ...newResults];
         const sortedResults = combinedResults.sort((a, b) => 
@@ -183,6 +179,8 @@ const App: React.FC = () => {
         setActiveSubject(updatedSubject);
         setSubjects(subjects.map(s => s.id === updatedSubject.id ? updatedSubject : s));
         setCurrentStep(AppStep.VIEW_RESULTS);
+      } else if (!errorMessage) {
+        setErrorMessage("ไม่สามารถประมวลผลกระดาษคำตอบได้ กรุณาตรวจสอบความชัดเจนของภาพถ่าย");
       }
     } catch (err) {
       setErrorMessage("เกิดข้อผิดพลาดในการประมวลผลภาพนักเรียน");

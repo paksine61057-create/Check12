@@ -3,15 +3,18 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Choice } from "../types";
 
 /**
- * ฟังก์ชันทำความสะอาดข้อความ JSON ที่อาจมี Markdown Backticks ปนมา
+ * ฟังก์ชันดึงเฉพาะ JSON object ออกจากข้อความ (ช่วยป้องกันกรณี AI แถมข้อความอื่นมา)
  */
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
-  // หา JSON block ด้วย Regex เพื่อความแม่นยำสูงสุด
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    return jsonMatch[0];
+  // หาตำแหน่ง { ตัวแรก และ } ตัวสุดท้าย
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.substring(start, end + 1);
   }
+  
   return text.replace(/```json/g, "").replace(/```/g, "").trim();
 };
 
@@ -23,14 +26,19 @@ export const analyzeAnswerSheet = async (
   answers: Choice[], 
   studentId?: string, 
   studentName?: string,
-  error?: string 
+  error?: string,
+  isAuthError?: boolean
 }> => {
   try {
-    // สร้าง instance ใหม่ทุกครั้งเพื่อให้แน่ใจว่าได้ใช้ API Key ล่าสุด
+    // ตรวจสอบว่ามี API Key หรือไม่ก่อนเริ่ม
+    if (!process.env.API_KEY) {
+      return { answers: [], error: "ไม่พบ API Key ในระบบ กรุณาเชื่อมต่อ API", isAuthError: true };
+    }
+
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const systemInstruction = isKey 
-      ? `คุณคือผู้เชี่ยวชาญด้าน OMR (Optical Mark Recognition) หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบที่ถูกต้องในรูปแบบ JSON เท่านั้น`
+      ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบที่ถูกต้องในรูปแบบ JSON เท่านั้น`
       : `คุณคือผู้เชี่ยวชาญด้าน OMR และ OCR ภาษาไทย หน้าที่ของคุณคืออ่านเลขที่ ชื่อ และคำตอบของนักเรียนจากภาพถ่ายกระดาษคำตอบ และส่งคืนข้อมูลในรูปแบบ JSON เท่านั้น`;
 
     const userPrompt = isKey
@@ -39,14 +47,12 @@ export const analyzeAnswerSheet = async (
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: [
-        {
-          parts: [
-            { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-            { text: userPrompt }
-          ]
-        }
-      ],
+      contents: {
+        parts: [
+          { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
+          { text: userPrompt }
+        ]
+      },
       config: {
         systemInstruction: systemInstruction,
         temperature: 0.1,
@@ -76,7 +82,8 @@ export const analyzeAnswerSheet = async (
     const rawText = response.text;
     if (!rawText) throw new Error("AI ไม่คืนค่าข้อมูล");
     
-    const data = JSON.parse(cleanJsonResponse(rawText));
+    const cleanedText = cleanJsonResponse(rawText);
+    const data = JSON.parse(cleanedText);
     const answers: Choice[] = new Array(totalQuestions).fill(null);
     
     if (data.questions && Array.isArray(data.questions)) {
@@ -99,20 +106,26 @@ export const analyzeAnswerSheet = async (
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("OMR Error Details:", err);
+    console.error("OMR API Error:", err);
     
-    let friendlyError = "ประมวลผลล้มเหลว กรุณาตรวจสอบความชัดเจนของภาพถ่าย หรือเลือกใช้ภาพที่ไม่มีเงาสะท้อน";
-    
-    // ตรวจสอบข้อผิดพลาดที่เกี่ยวกับ API Key หรือ Quota
     const errorMsg = err.message || "";
-    if (errorMsg.includes("API_KEY") || errorMsg.includes("unauthorized") || errorMsg.includes("401") || errorMsg.includes("API key not found")) {
-      friendlyError = "ผิดพลาด: ไม่พบ API Key หรือ Key ไม่ถูกต้อง กรุณากดปุ่ม 'เชื่อมต่อ API' เพื่อตั้งค่าใหม่";
+    let friendlyError = "ประมวลผลล้มเหลว กรุณาตรวจสอบความชัดเจนของภาพถ่าย";
+    let isAuthError = false;
+
+    // ตรวจสอบ Error ที่เกี่ยวกับสิทธิ์การใช้งาน
+    if (
+      errorMsg.includes("API_KEY") || 
+      errorMsg.includes("unauthorized") || 
+      errorMsg.includes("401") || 
+      errorMsg.includes("not found") || 
+      errorMsg.includes("Key")
+    ) {
+      friendlyError = "ผิดพลาด: ปัญหาเกี่ยวกับ API Key กรุณาเชื่อมต่อ API ใหม่";
+      isAuthError = true;
     } else if (errorMsg.includes("429") || errorMsg.includes("quota")) {
-      friendlyError = "ใช้งานเกินขีดจำกัด (Rate Limit) กรุณารอสักครู่แล้วลองใหม่อีกครั้ง";
-    } else if (errorMsg.includes("Safety")) {
-      friendlyError = "ภาพถูกระงับโดยระบบความปลอดภัยของ AI กรุณาถ่ายภาพใหม่ให้ชัดเจนขึ้น";
+      friendlyError = "ใช้งานเกินขีดจำกัด (Rate Limit) กรุณารอสักครู่แล้วลองใหม่";
     }
 
-    return { answers: [], error: friendlyError };
+    return { answers: [], error: friendlyError, isAuthError };
   }
 };
