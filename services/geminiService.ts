@@ -8,7 +8,6 @@ import { Choice } from "../types";
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
   try {
-    // พยายามหาเครื่องหมายปีกกาเพื่อตัดเอาเฉพาะส่วน JSON
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     if (start !== -1 && end !== -1 && end > start) {
@@ -32,11 +31,7 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // หากไม่มี API Key ให้คืนค่าแจ้งว่าระบบ AI ไม่พร้อมใช้งาน (แต่ยังทำงานแบบ Manual ได้)
-    if (!process.env.API_KEY) {
-       return { answers: [], error: "ฟีเจอร์วิเคราะห์ภาพด้วย AI ไม่พร้อมใช้งานในขณะนี้", isAuthError: true };
-    }
-
+    // เริ่มต้นใช้งาน AI ด้วย API Key จากสภาพแวดล้อม
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const systemInstruction = isKey 
@@ -81,7 +76,7 @@ export const analyzeAnswerSheet = async (
       }
     });
 
-    if (!response.text) throw new Error("Empty response from AI");
+    if (!response.text) throw new Error("ไม่ได้รับการตอบสนองจาก AI");
     
     const data = JSON.parse(cleanJsonResponse(response.text));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
@@ -109,14 +104,14 @@ export const analyzeAnswerSheet = async (
     console.error("OMR Service Error:", err);
     
     const msg = err.message || "";
-    let friendlyError = "ประมวลผลด้วย AI ล้มเหลว กรุณาลองใหม่หรือป้อนข้อมูลด้วยมือ";
+    let friendlyError = "ประมวลผลภาพล้มเหลว กรุณาตรวจสอบความชัดเจนของภาพ";
     let isAuthError = false;
 
-    if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("API_KEY") || msg.includes("not found") || msg.includes("Key")) {
-      friendlyError = "ระบบวิเคราะห์ภาพ (AI) ไม่พร้อมใช้งาน";
+    if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("API_KEY") || msg.includes("not found")) {
+      friendlyError = "API Key ไม่ถูกต้องหรือหมดอายุ";
       isAuthError = true;
     } else if (msg.includes("429")) {
-      friendlyError = "โควตา AI เต็มชั่วคราว";
+      friendlyError = "เรียกใช้งานถี่เกินไป กรุณารอสักครู่";
     }
 
     return { answers: [], error: friendlyError, isAuthError };
