@@ -32,7 +32,11 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // สร้าง instance ใหม่ทุกครั้งเพื่อให้ใช้ Key ล่าสุดที่ระบบฉีดเข้ามา
+    // หากไม่มี API Key ให้คืนค่า Error แจ้งเตือนสั้นๆ เพื่อให้ระบบ UI ทำงานต่อได้แบบ Manual
+    if (!process.env.API_KEY) {
+       return { answers: [], error: "ต้องการ API Key สำหรับการประมวลผลด้วย AI", isAuthError: true };
+    }
+
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const systemInstruction = isKey 
@@ -105,15 +109,14 @@ export const analyzeAnswerSheet = async (
     console.error("OMR Service Error:", err);
     
     const msg = err.message || "";
-    let friendlyError = "ประมวลผลล้มเหลว กรุณาตรวจสอบความชัดเจนของภาพ";
+    let friendlyError = "ประมวลผลล้มเหลว กรุณาตรวจสอบภาพถ่าย";
     let isAuthError = false;
 
-    // ตรวจจับข้อผิดพลาดเรื่อง API Key
     if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("API_KEY") || msg.includes("not found") || msg.includes("Key")) {
-      friendlyError = "ต้องเชื่อมต่อ API Key เพื่อใช้งาน (Requested entity was not found)";
+      friendlyError = "ระบบ AI ไม่พร้อมใช้งาน";
       isAuthError = true;
     } else if (msg.includes("429")) {
-      friendlyError = "เรียกใช้งานถี่เกินไป กรุณารอสักครู่";
+      friendlyError = "โควตาการใช้งานเต็มชั่วคราว";
     }
 
     return { answers: [], error: friendlyError, isAuthError };

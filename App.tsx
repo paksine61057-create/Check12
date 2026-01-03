@@ -19,7 +19,7 @@ const Navbar = () => (
         <span className="text-[10px] uppercase tracking-widest opacity-70 font-bold">Smart OMR Reader</span>
       </div>
     </div>
-    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v1.7 (Stable)</div>
+    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v1.8 (Standard)</div>
   </nav>
 );
 
@@ -32,7 +32,7 @@ const App: React.FC = () => {
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
   const [isApiKeySelected, setIsApiKeySelected] = useState<boolean>(true);
 
-  // ตรวจสอบ API Key สถานะเริ่มต้น
+  // ตรวจสอบ API Key สถานะ (เพื่อใช้แสดงสถานะใน Footer เท่านั้น ไม่บังคับ)
   useEffect(() => {
     const checkKey = async () => {
       if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
@@ -114,10 +114,7 @@ const App: React.FC = () => {
       
       if (data.error) {
         setErrorMessage(data.error);
-        if (data.isAuthError) {
-          setIsApiKeySelected(false);
-          handleOpenKeySelector(); // เปิดหน้าต่างเลือกคีย์อัตโนมัติ
-        }
+        if (data.isAuthError) setIsApiKeySelected(false);
         return;
       }
 
@@ -125,7 +122,7 @@ const App: React.FC = () => {
       setActiveSubject(updatedSubject);
       setSubjects(subjects.map(s => s.id === updatedSubject.id ? updatedSubject : s));
     } catch (err) {
-      setErrorMessage("เกิดข้อผิดพลาดในการประมวลผลเฉลย");
+      setErrorMessage("เกิดข้อผิดพลาดในการประมวลผลเฉลยด้วย AI");
     } finally {
       setIsLoading(false);
       setProcessingProgress({ current: 0, total: 0 });
@@ -147,9 +144,8 @@ const App: React.FC = () => {
         
         if (data.error) {
           if (data.isAuthError) {
-            setErrorMessage(data.error);
+            setErrorMessage(data.error + " (คุณสามารถกรอกคะแนนด้วยมือในตารางสรุปผลได้)");
             setIsApiKeySelected(false);
-            handleOpenKeySelector(); // เปิดหน้าต่างเลือกคีย์อัตโนมัติ
             break;
           }
           continue;
@@ -188,7 +184,7 @@ const App: React.FC = () => {
         setSubjects(subjects.map(s => s.id === updatedSubject.id ? updatedSubject : s));
         setCurrentStep(AppStep.VIEW_RESULTS);
       } else if (!errorMessage) {
-        setErrorMessage("ไม่สามารถประมวลผลกระดาษคำตอบได้ กรุณาตรวจสอบความชัดเจนของภาพถ่าย");
+        setErrorMessage("ไม่สามารถใช้ AI ประมวลผลได้ในขณะนี้ กรุณาตรวจสอบการเชื่อมต่อหรือป้อนข้อมูลด้วยมือ");
       }
     } catch (err) {
       setErrorMessage("เกิดข้อผิดพลาดในการประมวลผลแผ่นคำตอบ");
@@ -224,24 +220,6 @@ const App: React.FC = () => {
       <Navbar />
 
       <main className="max-w-4xl mx-auto p-4 md:p-8">
-        {/* API STATUS BAR - ปรับปรุงให้ดูเล็กลงและไม่รบกวน */}
-        {!isApiKeySelected && (
-          <div className="mb-6 bg-white border border-amber-200 p-4 rounded-2xl flex items-center justify-between shadow-sm animate-fadeIn">
-            <div className="flex items-center gap-3">
-              <div className="bg-amber-100 p-2 rounded-full text-amber-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
-              </div>
-              <p className="text-amber-800 text-xs sm:text-sm font-bold">เพื่อการประมวลผลภาพที่แม่นยำ กรุณาเชื่อมต่อ API Key</p>
-            </div>
-            <button 
-              onClick={handleOpenKeySelector}
-              className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl font-bold text-xs shadow-md transition active:scale-95 whitespace-nowrap"
-            >
-              เชื่อมต่อ API
-            </button>
-          </div>
-        )}
-
         {/* Error Alert */}
         {errorMessage && (
           <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-xl flex items-start gap-3 animate-fadeIn shadow-sm">
@@ -249,7 +227,7 @@ const App: React.FC = () => {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             </div>
             <div className="flex-1">
-              <p className="font-bold text-red-800 text-sm">พบข้อผิดพลาด</p>
+              <p className="font-bold text-red-800 text-sm">แจ้งเตือน</p>
               <p className="text-red-700 text-xs">{errorMessage}</p>
             </div>
             <button onClick={() => setErrorMessage(null)} className="ml-auto text-red-400 hover:text-red-600 p-1">
@@ -290,7 +268,7 @@ const App: React.FC = () => {
               <div className="absolute inset-0 rounded-full border-4 border-blue-400/20 animate-ping"></div>
               <div className="animate-spin rounded-full h-24 w-24 border-t-4 border-blue-400 shadow-2xl"></div>
             </div>
-            <p className="text-2xl font-black mb-4 tracking-tight">กำลังตอดสวบข้อมูลด้วย AI...</p>
+            <p className="text-2xl font-black mb-4 tracking-tight">ระบบกำลังวิเคราะห์ภาพ...</p>
             {processingProgress.total > 0 && (
               <div className="w-full max-w-xs space-y-4">
                 <div className="flex justify-between text-sm font-bold text-blue-200 uppercase tracking-widest">
@@ -325,7 +303,7 @@ const App: React.FC = () => {
                    <svg className="w-10 h-10 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
                 </div>
                 <p className="text-lg font-bold text-gray-500">ยังไม่มีรายวิชา</p>
-                <p className="text-sm font-medium opacity-70 mt-1">เริ่มต้นสร้างรายวิชาใหม่เพื่อใช้ระบบตรวจอัจฉริยะ</p>
+                <p className="text-sm font-medium opacity-70 mt-1">เริ่มต้นสร้างรายวิชาใหม่เพื่อเริ่มใช้งาน</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -377,7 +355,7 @@ const App: React.FC = () => {
           <section className="bg-white p-8 sm:p-10 rounded-[2.5rem] shadow-xl border border-gray-100 max-w-lg mx-auto animate-fadeIn relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-2 bg-blue-600"></div>
             <h2 className="text-2xl font-black mb-1 text-gray-800">สร้างรายวิชา</h2>
-            <p className="text-gray-400 text-xs mb-8 font-bold uppercase tracking-widest">Setup new exam subject</p>
+            <p className="text-gray-400 text-xs mb-8 font-bold uppercase tracking-widest">Setup new subject</p>
             <form onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
@@ -385,13 +363,13 @@ const App: React.FC = () => {
             }}>
               <div className="space-y-6">
                 <div>
-                  <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2">ชื่อรายวิชา / ครั้งที่สอบ</label>
-                  <input required name="name" type="text" placeholder="เช่น วิทยาศาสตร์ กลางภาค" className="w-full px-5 py-4 rounded-2xl border border-gray-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium" />
+                  <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2">ชื่อรายวิชา</label>
+                  <input required name="name" type="text" placeholder="เช่น วิทยาศาสตร์ ม.3" className="w-full px-5 py-4 rounded-2xl border border-gray-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium" />
                 </div>
                 <div>
                   <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2">จำนวนข้อสอบ</label>
                   <div className="relative">
-                    <input required name="count" type="number" min="1" max="100" placeholder="สูงสุด 100 ข้อ" className="w-full px-5 py-4 rounded-2xl border border-gray-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-bold text-lg pr-12" />
+                    <input required name="count" type="number" min="1" max="100" placeholder="ระบุจำนวนข้อ" className="w-full px-5 py-4 rounded-2xl border border-gray-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-bold text-lg pr-12" />
                     <span className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-300 font-black">ข้อ</span>
                   </div>
                 </div>
@@ -406,10 +384,10 @@ const App: React.FC = () => {
         {currentStep === AppStep.CALIBRATE_KEY && activeSubject && (
           <section className="space-y-10 animate-fadeIn text-center">
             <div className="max-w-md mx-auto">
-              <h2 className="text-3xl font-black mb-3 text-gray-800 leading-tight">อัปโหลดแผ่นเฉลย</h2>
-              <p className="text-gray-500 mb-10 text-sm font-medium">ภาพต้องชัดเจน ไม่มืด และระบายตัวเลือกให้ครบตามจำนวนข้อจริง</p>
+              <h2 className="text-3xl font-black mb-3 text-gray-800 leading-tight">ระบุเฉลยที่ถูกต้อง</h2>
+              <p className="text-gray-500 mb-10 text-sm font-medium">คุณสามารถอัปโหลดภาพเพื่อให้ AI ช่วยตรวจจับ <br/>หรือเลือกเฉลยด้วยตนเองจากตารางด้านล่าง</p>
               
-              <div className="relative group overflow-hidden rounded-[3rem] h-64 shadow-2xl shadow-blue-50">
+              <div className="relative group overflow-hidden rounded-[3rem] h-64 shadow-2xl shadow-blue-50 mb-10">
                 <input 
                   type="file" 
                   accept="image/*" 
@@ -420,53 +398,52 @@ const App: React.FC = () => {
                   <div className="bg-blue-600 p-5 rounded-[2rem] mb-4 text-white shadow-lg shadow-blue-100 group-hover:scale-110 transition-transform">
                     <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
                   </div>
-                  <span className="text-lg font-black text-gray-700 block">กดอัปโหลดแผ่นเฉลย</span>
-                  <span className="text-[10px] text-gray-300 mt-2 font-black uppercase tracking-widest">AI will auto-detect answers</span>
+                  <span className="text-lg font-black text-gray-700 block">อัปโหลดภาพเฉลย (ไม่บังคับ)</span>
+                  <span className="text-[10px] text-gray-300 mt-2 font-black uppercase tracking-widest italic">Optional: Use AI to detect answers</span>
                 </div>
               </div>
             </div>
 
-            {activeSubject.answerKey.some(a => a !== null) && (
-              <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-gray-50 text-left animate-slideUp">
-                <div className="flex items-center gap-3 mb-8">
-                  <div className="w-2 h-8 bg-blue-600 rounded-full"></div>
-                  <h3 className="text-xl font-black text-gray-800">ผลการอ่านเฉลย ({activeSubject.totalQuestions} ข้อ)</h3>
-                </div>
-                
-                <div className="grid grid-cols-5 sm:grid-cols-10 gap-3">
-                  {activeSubject.answerKey.map((ans, idx) => (
-                    <div key={idx} className="flex flex-col items-center p-3 rounded-2xl bg-gray-50 border border-gray-100 hover:bg-white hover:shadow-md transition-all cursor-pointer">
-                      <span className="text-[10px] text-gray-400 font-black mb-1">ข้อ {idx + 1}</span>
-                      <select 
-                        value={ans || ''} 
-                        onChange={(e) => {
-                          const newKey = [...activeSubject.answerKey];
-                          newKey[idx] = (e.target.value as Choice) || null;
-                          const updated = { ...activeSubject, answerKey: newKey };
-                          setActiveSubject(updated);
-                          setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
-                        }}
-                        className="bg-transparent font-black text-blue-600 outline-none text-center appearance-none cursor-pointer w-full text-lg"
-                      >
-                        <option value="">-</option>
-                        <option value="ก">ก</option>
-                        <option value="ข">ข</option>
-                        <option value="ค">ค</option>
-                        <option value="ง">ง</option>
-                      </select>
-                    </div>
-                  ))}
-                </div>
-                
-                <button 
-                  onClick={() => { setCurrentStep(AppStep.SCAN_STUDENTS); setErrorMessage(null); }}
-                  className="mt-10 w-full bg-blue-600 text-white py-5 rounded-[1.5rem] font-black text-lg shadow-xl shadow-blue-100 hover:bg-blue-700 transition active:scale-[0.98] flex items-center justify-center gap-3"
-                >
-                  เริ่มตรวจแผ่นนักเรียน
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-                </button>
+            {/* ตารางป้อนเฉลยด้วยมือ - แสดงตลอดเวลาเพื่อให้ใช้งานได้ทันที */}
+            <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-gray-50 text-left animate-slideUp">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="w-2 h-8 bg-blue-600 rounded-full"></div>
+                <h3 className="text-xl font-black text-gray-800">จัดการเฉลย ({activeSubject.totalQuestions} ข้อ)</h3>
               </div>
-            )}
+              
+              <div className="grid grid-cols-5 sm:grid-cols-10 gap-3">
+                {activeSubject.answerKey.map((ans, idx) => (
+                  <div key={idx} className="flex flex-col items-center p-3 rounded-2xl bg-gray-50 border border-gray-100 hover:bg-white hover:shadow-md transition-all cursor-pointer">
+                    <span className="text-[10px] text-gray-400 font-black mb-1">ข้อ {idx + 1}</span>
+                    <select 
+                      value={ans || ''} 
+                      onChange={(e) => {
+                        const newKey = [...activeSubject.answerKey];
+                        newKey[idx] = (e.target.value as Choice) || null;
+                        const updated = { ...activeSubject, answerKey: newKey };
+                        setActiveSubject(updated);
+                        setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
+                      }}
+                      className="bg-transparent font-black text-blue-600 outline-none text-center appearance-none cursor-pointer w-full text-lg"
+                    >
+                      <option value="">-</option>
+                      <option value="ก">ก</option>
+                      <option value="ข">ข</option>
+                      <option value="ค">ค</option>
+                      <option value="ง">ง</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+              
+              <button 
+                onClick={() => { setCurrentStep(AppStep.SCAN_STUDENTS); setErrorMessage(null); }}
+                className="mt-10 w-full bg-blue-600 text-white py-5 rounded-[1.5rem] font-black text-lg shadow-xl shadow-blue-100 hover:bg-blue-700 transition active:scale-[0.98] flex items-center justify-center gap-3"
+              >
+                บันทึกและไปตรวจแผ่นนักเรียน
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+              </button>
+            </div>
           </section>
         )}
 
@@ -474,7 +451,7 @@ const App: React.FC = () => {
           <section className="space-y-10 animate-fadeIn text-center">
             <div className="max-w-lg mx-auto">
               <h2 className="text-3xl font-black mb-3 text-gray-800">ตรวจแผ่นนักเรียน</h2>
-              <p className="text-gray-500 mb-10 text-sm font-medium leading-relaxed">ถ่ายรูปทีละแผ่นหรือเลือกไฟล์ภาพหลายไฟล์พร้อมกันจากเครื่อง <br/>ระบบจะประมวลผลและสรุปคะแนนให้อัตโนมัติ</p>
+              <p className="text-gray-500 mb-10 text-sm font-medium leading-relaxed">ถ่ายรูปเพื่อใช้ AI ช่วยตรวจอัตโนมัติ <br/>หรือข้ามไปหน้าสรุปผลเพื่อป้อนคะแนนด้วยตนเอง</p>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="relative group overflow-hidden rounded-[2.5rem] h-64 shadow-xl hover:shadow-2xl transition-all duration-300">
@@ -509,17 +486,16 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-            </div>
 
-            {activeSubject.results.length > 0 && (
-              <button 
-                onClick={() => { setCurrentStep(AppStep.VIEW_RESULTS); setErrorMessage(null); }}
-                className="inline-flex items-center gap-2 bg-white text-blue-600 font-black px-8 py-4 rounded-2xl border border-blue-100 shadow-sm hover:bg-blue-50 transition-all active:scale-95 text-sm uppercase tracking-widest"
-              >
-                ดูคะแนนนักเรียน ({activeSubject.results.length})
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 5l7 7m0 0l-7 7m7-7H3" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </button>
-            )}
+              <div className="mt-8">
+                <button 
+                  onClick={() => setCurrentStep(AppStep.VIEW_RESULTS)}
+                  className="text-blue-600 font-bold hover:underline"
+                >
+                  ข้ามไปหน้าสรุปผลเพื่อป้อนข้อมูลด้วยมือ
+                </button>
+              </div>
+            </div>
           </section>
         )}
 
@@ -529,18 +505,31 @@ const App: React.FC = () => {
               <div>
                 <h2 className="text-4xl font-black text-gray-800 tracking-tight leading-none">{activeSubject.name}</h2>
                 <div className="flex items-center gap-3 mt-3">
-                   <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-widest">Results</span>
-                   <span className="text-xs font-bold text-gray-400">เฉลี่ย {activeSubject.results.length > 0 ? (activeSubject.results.reduce((a,b) => a + b.totalScore, 0) / activeSubject.results.length).toFixed(1) : 0} คะแนน</span>
+                   <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-widest">Scoreboard</span>
+                   <span className="text-xs font-bold text-gray-400">ค่าเฉลี่ย {activeSubject.results.length > 0 ? (activeSubject.results.reduce((a,b) => a + b.totalScore, 0) / activeSubject.results.length).toFixed(1) : 0} คะแนน</span>
                 </div>
               </div>
               <div className="flex flex-wrap gap-3 w-full md:w-auto">
-                <button onClick={exportToCSV} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-2xl font-black shadow-lg shadow-green-50 active:scale-95 transition-all text-sm uppercase tracking-wider">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  CSV
+                <button onClick={() => {
+                   const newRes: StudentResult = {
+                     id: Date.now().toString(),
+                     studentNumber: (activeSubject.results.length + 1).toString(),
+                     studentName: "เพิ่มรายชื่อใหม่",
+                     answers: activeSubject.answerKey.map((ans, i) => ({ questionNo: i+1, studentAnswer: null, correctAnswer: ans, isCorrect: false })),
+                     totalScore: 0,
+                     hasError: false
+                   };
+                   const updated = { ...activeSubject, results: [...activeSubject.results, newRes] };
+                   setActiveSubject(updated);
+                   setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
+                }} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-2xl font-black text-sm uppercase">
+                  เพิ่มคน
                 </button>
-                <button onClick={() => { setCurrentStep(AppStep.SCAN_STUDENTS); setErrorMessage(null); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-black shadow-lg shadow-blue-50 active:scale-95 transition-all text-sm uppercase tracking-wider">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  ตรวจต่อ
+                <button onClick={exportToCSV} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-2xl font-black shadow-lg shadow-green-50 text-sm uppercase">
+                  ส่งออก CSV
+                </button>
+                <button onClick={() => { setCurrentStep(AppStep.SCAN_STUDENTS); setErrorMessage(null); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-black shadow-lg shadow-blue-50 text-sm uppercase">
+                  ตรวจเพิ่ม
                 </button>
               </div>
             </div>
@@ -549,10 +538,10 @@ const App: React.FC = () => {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/50 border-b border-gray-100 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">
-                    <th className="px-8 py-5">No.</th>
-                    <th className="px-8 py-5">Student Name</th>
-                    <th className="px-8 py-5 text-center">Score</th>
-                    <th className="px-8 py-5 text-right">Action</th>
+                    <th className="px-8 py-5">เลขที่</th>
+                    <th className="px-8 py-5">ชื่อ-นามสกุล</th>
+                    <th className="px-8 py-5 text-center">คะแนนรวม</th>
+                    <th className="px-8 py-5 text-right">การจัดการ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -578,10 +567,19 @@ const App: React.FC = () => {
                       </td>
                       <td className="px-8 py-5 text-center">
                         <div className="inline-flex items-center gap-2">
-                           <span className={`inline-block px-4 py-1 rounded-full font-black text-xl ${r.hasError ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-700'}`}>
-                             {r.totalScore}<span className="text-[10px] opacity-40 ml-1">/{activeSubject.totalQuestions}</span>
-                           </span>
-                           {r.hasError && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" title="มีข้อผิดพลาด"></div>}
+                           <input 
+                             type="number"
+                             value={r.totalScore}
+                             onChange={(e) => {
+                                const newResults = [...activeSubject.results];
+                                newResults[idx].totalScore = parseInt(e.target.value) || 0;
+                                const updated = { ...activeSubject, results: newResults };
+                                setActiveSubject(updated);
+                                setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
+                             }}
+                             className="w-16 text-center bg-blue-50 text-blue-700 rounded-lg font-black text-lg py-1 border-none outline-none"
+                           />
+                           <span className="text-[10px] text-gray-400">/ {activeSubject.totalQuestions}</span>
                         </div>
                       </td>
                       <td className="px-8 py-5 text-right">
@@ -608,10 +606,13 @@ const App: React.FC = () => {
            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-300">TODSUAB • SMART OMR</span>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-blue-600 font-black text-[10px] uppercase tracking-widest bg-blue-50 px-4 py-1.5 rounded-full shadow-sm">
-            <span className={`w-2 h-2 rounded-full ${isApiKeySelected ? 'bg-green-500' : 'bg-amber-500 animate-pulse'}`}></span>
-            AI Engine: {isApiKeySelected ? 'Active' : 'Key Required'}
-          </div>
+          <button 
+            onClick={handleOpenKeySelector}
+            className={`flex items-center gap-2 font-black text-[10px] uppercase tracking-widest px-4 py-1.5 rounded-full shadow-sm ${isApiKeySelected ? 'text-green-600 bg-green-50' : 'text-amber-600 bg-amber-50'}`}
+          >
+            <span className={`w-2 h-2 rounded-full ${isApiKeySelected ? 'bg-green-500' : 'bg-amber-500'}`}></span>
+            AI Mode: {isApiKeySelected ? 'Active' : 'Offline'} (Click to Setup)
+          </button>
         </div>
       </footer>
     </div>
