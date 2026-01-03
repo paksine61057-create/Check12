@@ -7,6 +7,11 @@ import { Choice } from "../types";
  */
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
+  // หา JSON block ด้วย Regex เพื่อความแม่นยำสูงสุด
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return jsonMatch[0];
+  }
   return text.replace(/```json/g, "").replace(/```/g, "").trim();
 };
 
@@ -22,32 +27,28 @@ export const analyzeAnswerSheet = async (
 }> => {
   try {
     // สร้าง instance ใหม่ทุกครั้งเพื่อให้แน่ใจว่าได้ใช้ API Key ล่าสุด
-    // ใช้ process.env.API_KEY โดยตรงตามข้อกำหนด
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    const prompt = isKey 
-      ? `คุณคือผู้เชี่ยวชาญด้านการตรวจกระดาษคำตอบ (OMR) 
-         วิเคราะห์ภาพ "เฉลยต้นแบบ" นี้
-         ตรวจสอบตำแหน่งที่ระบายสีดำหรือกากบาทในข้อ 1 ถึง ${totalQuestions}
-         ส่งคืนข้อมูลในรูปแบบ JSON เท่านั้น โดยมีโครงสร้าง: 
-         { "questions": [ { "id": 1, "marked": "ก" }, ... ] }
-         ตัวเลือกที่อนุญาตคือ ก, ข, ค, ง`
-      : `คุณคือผู้เชี่ยวชาญด้าน OMR และการอ่านภาษาไทย (OCR)
-         1. อ่านเลขที่ (Student ID) และ ชื่อ-นามสกุล จากหัวกระดาษ
-         2. วิเคราะห์คำตอบข้อ 1 ถึง ${totalQuestions}
-         ส่งคืน JSON: 
-         { "studentNumber": "...", "studentName": "...", "questions": [ { "id": 1, "marked": "ก" }, ... ] }
-         ถ้าไม่ระบายให้ใช้ null, ถ้าระบายหลายช่องให้ใช้ "multiple"`;
+    const systemInstruction = isKey 
+      ? `คุณคือผู้เชี่ยวชาญด้าน OMR (Optical Mark Recognition) หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบที่ถูกต้องในรูปแบบ JSON เท่านั้น`
+      : `คุณคือผู้เชี่ยวชาญด้าน OMR และ OCR ภาษาไทย หน้าที่ของคุณคืออ่านเลขที่ ชื่อ และคำตอบของนักเรียนจากภาพถ่ายกระดาษคำตอบ และส่งคืนข้อมูลในรูปแบบ JSON เท่านั้น`;
+
+    const userPrompt = isKey
+      ? `วิเคราะห์ภาพกระดาษคำตอบนี้เพื่อหา "เฉลย" ข้อ 1 ถึง ${totalQuestions} โดยตัวเลือกที่ระบายคือ ก, ข, ค, หรือ ง`
+      : `อ่านเลขที่ (Student ID), ชื่อ-นามสกุล และวิเคราะห์คำตอบข้อ 1 ถึง ${totalQuestions} จากกระดาษคำตอบนี้`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: {
-        parts: [
-          { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: prompt }
-        ]
-      },
+      contents: [
+        {
+          parts: [
+            { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
+            { text: userPrompt }
+          ]
+        }
+      ],
       config: {
+        systemInstruction: systemInstruction,
         temperature: 0.1,
         responseMimeType: "application/json",
         responseSchema: {
@@ -98,14 +99,18 @@ export const analyzeAnswerSheet = async (
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("OMR Error:", err);
+    console.error("OMR Error Details:", err);
     
-    let friendlyError = "ประมวลผลล้มเหลว กรุณาตรวจสอบความชัดเจนของภาพถ่ายหรือแสงสว่าง";
+    let friendlyError = "ประมวลผลล้มเหลว กรุณาตรวจสอบความชัดเจนของภาพถ่าย หรือเลือกใช้ภาพที่ไม่มีเงาสะท้อน";
     
-    if (err.message?.includes("API_KEY") || err.message?.includes("unauthorized") || err.message?.includes("401")) {
-      friendlyError = "API Key ไม่ถูกต้องหรือยังไม่ได้ตั้งค่า กรุณาเชื่อมต่อ API ใหม่อีกครั้ง";
-    } else if (err.message?.includes("429")) {
-      friendlyError = "มีการเรียกใช้งานบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่อีกครั้ง";
+    // ตรวจสอบข้อผิดพลาดที่เกี่ยวกับ API Key หรือ Quota
+    const errorMsg = err.message || "";
+    if (errorMsg.includes("API_KEY") || errorMsg.includes("unauthorized") || errorMsg.includes("401") || errorMsg.includes("API key not found")) {
+      friendlyError = "ผิดพลาด: ไม่พบ API Key หรือ Key ไม่ถูกต้อง กรุณากดปุ่ม 'เชื่อมต่อ API' เพื่อตั้งค่าใหม่";
+    } else if (errorMsg.includes("429") || errorMsg.includes("quota")) {
+      friendlyError = "ใช้งานเกินขีดจำกัด (Rate Limit) กรุณารอสักครู่แล้วลองใหม่อีกครั้ง";
+    } else if (errorMsg.includes("Safety")) {
+      friendlyError = "ภาพถูกระงับโดยระบบความปลอดภัยของ AI กรุณาถ่ายภาพใหม่ให้ชัดเจนขึ้น";
     }
 
     return { answers: [], error: friendlyError };
