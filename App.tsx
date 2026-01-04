@@ -30,7 +30,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
-  const [apiKeyStatus, setApiKeyStatus] = useState<{ active: boolean; label: string; prefix: string }>({ active: false, label: 'Checking...', prefix: '' });
+  const [apiKeyStatus, setApiKeyStatus] = useState<{ active: boolean; label: string; prefix: string }>({ active: false, label: 'Checking...', prefix: 'None' });
 
   // ตรวจสอบความพร้อมของ AI
   useEffect(() => {
@@ -38,25 +38,26 @@ const App: React.FC = () => {
       let key = (process.env.API_KEY || "").toString().trim();
       key = key.replace(/^['"]|['"]$/g, '');
       
-      const prefix = key ? `${key.substring(0, 4)}...` : 'None';
+      const displayPrefix = key ? `${key.substring(0, 8)}...` : 'None';
       
       let hasSelected = false;
       if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
         hasSelected = await window.aistudio.hasSelectedApiKey();
       }
 
+      // ตรวจสอบสถานะแต่ไม่อนุญาตให้สถานะเหล่านี้บล็อกปุ่มกด
       const isRealKey = key.startsWith("AIza");
       const isID = key.startsWith("gen-lang");
       
-      const active = hasSelected || isRealKey;
-      let label = "Offline";
+      const active = hasSelected || key.length > 5; // ขอแค่มีค่า ก็ให้ถือว่า Active ไว้ก่อน
+      let label = "Ready";
       
-      if (active) label = "Active";
-      else if (isID) label = "Detected ID (Wrong)";
-      else if (key.length > 0) label = "Invalid Format";
+      if (isRealKey) label = "Active Key";
+      else if (isID) label = "Check ID";
+      else if (key.length > 0) label = "Custom Key";
       else label = "No Key Found";
 
-      setApiKeyStatus({ active, label, prefix });
+      setApiKeyStatus({ active, label, prefix: displayPrefix });
     };
     checkStatus();
   }, [errorMessage]);
@@ -203,14 +204,12 @@ const App: React.FC = () => {
       <Navbar />
 
       <main className="max-w-4xl mx-auto p-4 md:p-8">
-        {/* API Key Status Alert */}
-        {!apiKeyStatus.active && currentStep !== AppStep.SUBJECT_LIST && (
+        {/* API Diagnostic Message - แสดงข้อมูลที่เป็นประโยชน์แต่ไม่ขวางทาง */}
+        {apiKeyStatus.label === "No Key Found" && currentStep !== AppStep.SUBJECT_LIST && (
            <div className="mb-6 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl shadow-sm">
-             <h3 className="text-amber-800 font-bold mb-1">แจ้งเตือนสถานะ API (พบค่า: {apiKeyStatus.prefix})</h3>
-             <p className="text-amber-700 text-sm">
-               {apiKeyStatus.label.includes("ID") 
-                 ? "ระบบตรวจพบ Project ID แทนที่จะเป็น API Key กรุณาใช้รหัสที่ขึ้นต้นด้วย AIza... จาก Google AI Studio" 
-                 : "ยังไม่ได้ระบุ API Key ที่ถูกต้อง กรุณาตรวจสอบการตั้งค่า Environment Variable API_KEY ใน Vercel"}
+             <h3 className="text-amber-800 font-bold mb-1">ไม่พบการตั้งค่า API Key</h3>
+             <p className="text-amber-700 text-sm italic">
+               กรุณาตรวจสอบว่าได้ตั้งค่า API_KEY ใน Vercel แล้วหรือยัง
              </p>
            </div>
         )}
@@ -297,7 +296,7 @@ const App: React.FC = () => {
             <div className="relative group overflow-hidden rounded-[3rem] h-48 shadow-xl bg-white border-4 border-dashed border-blue-50 flex items-center justify-center cursor-pointer">
               <input type="file" accept="image/*" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processKeyImage(e.target.files[0])} />
               <div className="text-blue-600 font-bold">
-                <p className="text-lg">คลิกเพื่ออัปโหลด "แผ่นเฉลย"</p>
+                <p className="text-lg">คลิกเพื่ออัปโหลด "แผ่นเฉลย" หรือถ่ายภาพ</p>
                 <p className="text-xs opacity-60 mt-1">AI จะทำการอ่านเฉลยให้คุณอัตโนมัติ</p>
               </div>
             </div>

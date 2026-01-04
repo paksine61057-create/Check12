@@ -31,35 +31,20 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // ดึง Key และทำความสะอาด (ลบช่องว่างและเครื่องหมายคำพูดที่อาจติดมา)
-    let apiKey = (process.env.API_KEY || (window as any).API_KEY || "").toString().trim();
-    apiKey = apiKey.replace(/^['"]|['"]$/g, ''); // ลบอัญประกาศถ้ามี
+    // ดึง Key และทำความสะอาดขั้นสูงสุด (ลบ whitespace, quotes, hidden chars)
+    let rawKey = (process.env.API_KEY || (window as any).API_KEY || "").toString();
+    let apiKey = rawKey.trim().replace(/^['"]|['"]$/g, ''); 
 
     if (!apiKey || apiKey === "undefined" || apiKey === "null" || apiKey === "") {
-      return { answers: [], error: "ไม่พบ API_KEY ในระบบ กรุณาตั้งค่า Environment Variable", isAuthError: true };
+      return { answers: [], error: "ไม่พบ API_KEY ในระบบ กรุณาตรวจสอบการตั้งค่า Environment Variable", isAuthError: true };
     }
 
-    // ตรรกะใหม่: ถ้าขึ้นต้นด้วย AIza ให้ผ่านทันทีโดยไม่สนเงื่อนไขอื่น
-    const isLikelyKey = apiKey.startsWith("AIza");
-    const isLikelyID = apiKey.startsWith("gen-lang-client");
-
-    if (isLikelyID && !isLikelyKey) {
-      return { 
-        answers: [], 
-        error: `ตรวจพบ Project ID (${apiKey.substring(0, 8)}...) แทนที่จะเป็น API Key กรุณาใช้รหัสที่ขึ้นต้นด้วย 'AIza...'`, 
-        isAuthError: true 
-      };
+    // แจ้งเตือนใน Console เฉพาะกรณีที่ดูเหมือน Project ID แต่จะไม่บล็อกการทำงาน
+    if (apiKey.startsWith("gen-lang-client")) {
+      console.warn("Warning: The provided key looks like a Project ID instead of an API Key.");
     }
 
-    if (apiKey.length < 20 && !isLikelyKey) {
-      return {
-        answers: [],
-        error: "รูปแบบ API Key ไม่ถูกต้อง (สั้นเกินไป) กรุณาตรวจสอบรหัส 'AIza...' อีกครั้ง",
-        isAuthError: true
-      };
-    }
-
-    // สร้าง Instance ใหม่
+    // สร้าง Instance ใหม่เสมอตามกฎ
     const ai = new GoogleGenAI({ apiKey: apiKey });
     
     const systemInstruction = isKey 
@@ -134,9 +119,12 @@ export const analyzeAnswerSheet = async (
     let isAuthError = false;
 
     const errMsg = err.message?.toLowerCase() || "";
+    // ถ้า API ตอบกลับว่า Key ผิดพลาดจริง
     if (errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid") || errMsg.includes("not found")) {
-      friendlyError = "สิทธิ์การเข้าถึงปฏิเสธ: API Key อาจไม่ถูกต้อง หรือโปรเจกต์ไม่ได้เปิดใช้งาน API";
+      friendlyError = "API Key ที่ใช้ไม่ถูกต้อง หรือไม่มีสิทธิ์เข้าถึง (401 Unauthorized)";
       isAuthError = true;
+    } else if (errMsg.includes("quota")) {
+      friendlyError = "โควตาการใช้งาน API เต็มแล้ว";
     }
 
     return { answers: [], error: friendlyError, isAuthError };
