@@ -2,9 +2,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Choice } from "../types";
 
-/**
- * ฟังก์ชันดึงเฉพาะ JSON object ออกจากข้อความให้แม่นยำที่สุด
- */
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
   try {
@@ -31,36 +28,38 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // ดึง Key และทำความสะอาดขั้นสูงสุด (ลบ whitespace, quotes, hidden chars)
-    let rawKey = (process.env.API_KEY || (window as any).API_KEY || "").toString();
-    let apiKey = rawKey.trim().replace(/^['"]|['"]$/g, ''); 
+    // การดึงค่า API_KEY ที่รองรับทั้งการแทนที่ที่ Build-time และ Runtime
+    let apiKey = "";
+    
+    // พยายามดึงจากหลายช่องทางที่ Vercel อาจจะส่งมา
+    const envKey = process?.env?.API_KEY;
+    const windowKey = (window as any).API_KEY;
+    
+    apiKey = (envKey || windowKey || "").toString().trim();
 
-    if (!apiKey || apiKey === "undefined" || apiKey === "null" || apiKey === "") {
-      return { answers: [], error: "ไม่พบ API_KEY ในระบบ กรุณาตรวจสอบการตั้งค่า Environment Variable", isAuthError: true };
+    // ทำความสะอาดรหัส
+    apiKey = apiKey.replace(/^['"]|['"]$/g, ''); 
+
+    if (!apiKey || apiKey === "undefined") {
+      return { 
+        answers: [], 
+        error: "แอปไม่ได้รับรหัส API_KEY จากระบบ Vercel กรุณากด 'Redeploy' ในหน้า Dashboard ของ Vercel", 
+        isAuthError: true 
+      };
     }
 
-    // แจ้งเตือนใน Console เฉพาะกรณีที่ดูเหมือน Project ID แต่จะไม่บล็อกการทำงาน
-    if (apiKey.startsWith("gen-lang-client")) {
-      console.warn("Warning: The provided key looks like a Project ID instead of an API Key.");
-    }
-
-    // สร้าง Instance ใหม่เสมอตามกฎ
     const ai = new GoogleGenAI({ apiKey: apiKey });
     
     const systemInstruction = isKey 
       ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบในรูปแบบ JSON { "questions": [...] } โดยใช้ตัวเลือก ก, ข, ค, ง`
       : `คุณคือผู้เชี่ยวชาญด้าน OMR และ OCR ภาษาไทย อ่านเลขที่ ชื่อ และคำตอบนักเรียน ส่งคืน JSON { "studentNumber": "...", "studentName": "...", "questions": [...] }`;
 
-    const userPrompt = isKey
-      ? `วิเคราะห์ภาพเฉลยข้อ 1 ถึง ${totalQuestions}`
-      : `อ่านและตรวจแผ่นคำตอบข้อ 1 ถึง ${totalQuestions}`;
-
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: userPrompt }
+          { text: isKey ? `วิเคราะห์ภาพเฉลย 1-${totalQuestions}` : `ตรวจแผ่นคำตอบ 1-${totalQuestions}` }
         ]
       },
       config: {
@@ -115,16 +114,13 @@ export const analyzeAnswerSheet = async (
     };
   } catch (err: any) {
     console.error("OMR Service Error:", err);
-    let friendlyError = "AI ประมวลผลภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
+    let friendlyError = "เกิดข้อผิดพลาดในการประมวลผล";
     let isAuthError = false;
 
     const errMsg = err.message?.toLowerCase() || "";
-    // ถ้า API ตอบกลับว่า Key ผิดพลาดจริง
-    if (errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid") || errMsg.includes("not found")) {
-      friendlyError = "API Key ที่ใช้ไม่ถูกต้อง หรือไม่มีสิทธิ์เข้าถึง (401 Unauthorized)";
+    if (errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid")) {
+      friendlyError = "API Key ไม่ถูกต้อง (Unauthorized) กรุณาตรวจสอบรหัส 'AIza...' อีกครั้ง";
       isAuthError = true;
-    } else if (errMsg.includes("quota")) {
-      friendlyError = "โควตาการใช้งาน API เต็มแล้ว";
     }
 
     return { answers: [], error: friendlyError, isAuthError };
