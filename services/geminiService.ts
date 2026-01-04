@@ -31,16 +31,30 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // เริ่มต้นใช้งาน AI ด้วย API Key จากสภาพแวดล้อม
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = process.env.API_KEY;
+
+    // ตรวจสอบเบื้องต้นว่ามี Key หรือไม่ และรูปแบบถูกต้องหรือไม่
+    if (!apiKey || apiKey.trim() === "") {
+      return { answers: [], error: "ไม่พบ API_KEY ในระบบกรุณาตั้งค่าใน Environment Variables", isAuthError: true };
+    }
+
+    if (apiKey.startsWith("gen-lang-client")) {
+      return { 
+        answers: [], 
+        error: "ค่าที่ระบุคือ Project ID ไม่ใช่ API Key กรุณาใช้รหัสที่ขึ้นต้นด้วย 'AIza...'", 
+        isAuthError: true 
+      };
+    }
+
+    const ai = new GoogleGenAI({ apiKey: apiKey });
     
     const systemInstruction = isKey 
-      ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบในรูปแบบ JSON { "questions": [...] }`
-      : `คุณคือผู้เชี่ยวชาญด้าน OMR และ OCR ภาษาไทย หน้าที่ของคุณคืออ่านเลขที่ ชื่อ และคำตอบนักเรียน ส่งคืน JSON { "studentNumber": "...", "studentName": "...", "questions": [...] }`;
+      ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบในรูปแบบ JSON { "questions": [...] } โดยใช้ตัวเลือก ก, ข, ค, ง`
+      : `คุณคือผู้เชี่ยวชาญด้าน OMR และ OCR ภาษาไทย อ่านเลขที่ ชื่อ และคำตอบนักเรียน ส่งคืน JSON { "studentNumber": "...", "studentName": "...", "questions": [...] }`;
 
     const userPrompt = isKey
-      ? `วิเคราะห์ภาพเฉลยข้อ 1 ถึง ${totalQuestions} โดยตัวเลือกคือ ก, ข, ค, หรือ ง`
-      : `อ่านข้อมูลและวิเคราะห์คำตอบข้อ 1 ถึง ${totalQuestions} จากกระดาษคำตอบนี้`;
+      ? `วิเคราะห์ภาพเฉลยข้อ 1 ถึง ${totalQuestions}`
+      : `อ่านและตรวจแผ่นคำตอบข้อ 1 ถึง ${totalQuestions}`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -76,7 +90,7 @@ export const analyzeAnswerSheet = async (
       }
     });
 
-    if (!response.text) throw new Error("ไม่ได้รับการตอบสนองจาก AI");
+    if (!response.text) throw new Error("AI ไม่ตอบสนอง");
     
     const data = JSON.parse(cleanJsonResponse(response.text));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
@@ -102,16 +116,12 @@ export const analyzeAnswerSheet = async (
     };
   } catch (err: any) {
     console.error("OMR Service Error:", err);
-    
-    const msg = err.message || "";
-    let friendlyError = "ประมวลผลภาพล้มเหลว กรุณาตรวจสอบความชัดเจนของภาพ";
+    let friendlyError = "AI ประมวลผลภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
     let isAuthError = false;
 
-    if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("API_KEY") || msg.includes("not found")) {
-      friendlyError = "API Key ไม่ถูกต้องหรือหมดอายุ";
+    if (err.message?.includes("401") || err.message?.includes("API_KEY") || err.message?.includes("invalid")) {
+      friendlyError = "API Key ไม่ถูกต้อง กรุณาใช้รหัส 'AIza...' จาก Google AI Studio";
       isAuthError = true;
-    } else if (msg.includes("429")) {
-      friendlyError = "เรียกใช้งานถี่เกินไป กรุณารอสักครู่";
     }
 
     return { answers: [], error: friendlyError, isAuthError };
