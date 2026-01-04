@@ -31,24 +31,27 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // พยายามดึง Key จากช่องทางต่างๆ (Environment หรือ Global)
-    const apiKey = process.env.API_KEY || (window as any).API_KEY;
+    // ดึง Key และทำความสะอาด (ลบช่องว่างและเครื่องหมายคำพูดที่อาจติดมา)
+    let apiKey = (process.env.API_KEY || (window as any).API_KEY || "").toString().trim();
+    apiKey = apiKey.replace(/^['"]|['"]$/g, ''); // ลบอัญประกาศถ้ามี
 
-    if (!apiKey || apiKey === "undefined" || apiKey === "null" || apiKey.trim() === "") {
-      return { answers: [], error: "ยังไม่ได้ตั้งค่า API_KEY ในระบบ (Environment Variable)", isAuthError: true };
+    if (!apiKey || apiKey === "undefined" || apiKey === "null" || apiKey === "") {
+      return { answers: [], error: "ไม่พบ API_KEY ในระบบ กรุณาตั้งค่า Environment Variable", isAuthError: true };
     }
 
-    // ตรวจสอบว่ายังเป็น Project ID เก่าหรือไม่
-    if (apiKey.startsWith("gen-lang-client")) {
+    // ตรรกะใหม่: ถ้าขึ้นต้นด้วย AIza ให้ผ่านทันทีโดยไม่สนเงื่อนไขอื่น
+    const isLikelyKey = apiKey.startsWith("AIza");
+    const isLikelyID = apiKey.startsWith("gen-lang-client");
+
+    if (isLikelyID && !isLikelyKey) {
       return { 
         answers: [], 
-        error: "พบ Project ID แทนที่จะเป็น API Key กรุณาใช้รหัสที่ขึ้นต้นด้วย 'AIza...'", 
+        error: `ตรวจพบ Project ID (${apiKey.substring(0, 8)}...) แทนที่จะเป็น API Key กรุณาใช้รหัสที่ขึ้นต้นด้วย 'AIza...'`, 
         isAuthError: true 
       };
     }
 
-    // ตรวจสอบความยาวเบื้องต้น (ปกติ API Key ของ Google จะยาวประมาณ 39-40 ตัวอักษร)
-    if (apiKey.length < 30) {
+    if (apiKey.length < 20 && !isLikelyKey) {
       return {
         answers: [],
         error: "รูปแบบ API Key ไม่ถูกต้อง (สั้นเกินไป) กรุณาตรวจสอบรหัส 'AIza...' อีกครั้ง",
@@ -56,8 +59,8 @@ export const analyzeAnswerSheet = async (
       };
     }
 
-    // สร้าง Instance ใหม่ทุกครั้งตามกฎเพื่อความสดใหม่ของ Key
-    const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
+    // สร้าง Instance ใหม่
+    const ai = new GoogleGenAI({ apiKey: apiKey });
     
     const systemInstruction = isKey 
       ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบในรูปแบบ JSON { "questions": [...] } โดยใช้ตัวเลือก ก, ข, ค, ง`
@@ -130,10 +133,9 @@ export const analyzeAnswerSheet = async (
     let friendlyError = "AI ประมวลผลภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
     let isAuthError = false;
 
-    // ตรวจสอบข้อผิดพลาดเฉพาะเจาะจงจาก Google API
     const errMsg = err.message?.toLowerCase() || "";
     if (errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid") || errMsg.includes("not found")) {
-      friendlyError = "API Key ไม่ถูกต้อง หรือโปรเจกต์ไม่ได้เปิดใช้งาน API นี้ (โปรดเช็คใน AI Studio)";
+      friendlyError = "สิทธิ์การเข้าถึงปฏิเสธ: API Key อาจไม่ถูกต้อง หรือโปรเจกต์ไม่ได้เปิดใช้งาน API";
       isAuthError = true;
     }
 

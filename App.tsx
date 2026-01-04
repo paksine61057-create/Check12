@@ -30,29 +30,36 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
-  const [apiKeyStatus, setApiKeyStatus] = useState<{ active: boolean; label: string }>({ active: false, label: 'Checking...' });
+  const [apiKeyStatus, setApiKeyStatus] = useState<{ active: boolean; label: string; prefix: string }>({ active: false, label: 'Checking...', prefix: '' });
 
   // ตรวจสอบความพร้อมของ AI
   useEffect(() => {
     const checkStatus = async () => {
-      const key = process.env.API_KEY || "";
-      let hasSelected = false;
+      let key = (process.env.API_KEY || "").toString().trim();
+      key = key.replace(/^['"]|['"]$/g, '');
       
+      const prefix = key ? `${key.substring(0, 4)}...` : 'None';
+      
+      let hasSelected = false;
       if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
         hasSelected = await window.aistudio.hasSelectedApiKey();
       }
 
-      const active = hasSelected || (key.length > 20 && !key.startsWith("gen-lang"));
+      const isRealKey = key.startsWith("AIza");
+      const isID = key.startsWith("gen-lang");
+      
+      const active = hasSelected || isRealKey;
       let label = "Offline";
       
       if (active) label = "Active";
-      else if (key.startsWith("gen-lang")) label = "Wrong Key Type";
+      else if (isID) label = "Detected ID (Wrong)";
+      else if (key.length > 0) label = "Invalid Format";
       else label = "No Key Found";
 
-      setApiKeyStatus({ active, label });
+      setApiKeyStatus({ active, label, prefix });
     };
     checkStatus();
-  }, [errorMessage]); // Re-check when error occurs
+  }, [errorMessage]);
 
   // Persistence
   useEffect(() => {
@@ -199,11 +206,11 @@ const App: React.FC = () => {
         {/* API Key Status Alert */}
         {!apiKeyStatus.active && currentStep !== AppStep.SUBJECT_LIST && (
            <div className="mb-6 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl shadow-sm">
-             <h3 className="text-amber-800 font-bold mb-1">แจ้งเตือนสถานะ API</h3>
+             <h3 className="text-amber-800 font-bold mb-1">แจ้งเตือนสถานะ API (พบค่า: {apiKeyStatus.prefix})</h3>
              <p className="text-amber-700 text-sm">
-               {apiKeyStatus.label === "Wrong Key Type" 
-                 ? "คุณใส่ Project ID แทนที่จะเป็น API Key กรุณาใช้รหัสที่ขึ้นต้นด้วย AIza... และกด Redeploy ใน Vercel" 
-                 : "ยังไม่ได้ระบุ API Key ที่ถูกต้อง ระบบ AI จะไม่ทำงานจนกว่าจะมีการตั้งค่าที่ถูกต้อง"}
+               {apiKeyStatus.label.includes("ID") 
+                 ? "ระบบตรวจพบ Project ID แทนที่จะเป็น API Key กรุณาใช้รหัสที่ขึ้นต้นด้วย AIza... จาก Google AI Studio" 
+                 : "ยังไม่ได้ระบุ API Key ที่ถูกต้อง กรุณาตรวจสอบการตั้งค่า Environment Variable API_KEY ใน Vercel"}
              </p>
            </div>
         )}
@@ -425,11 +432,11 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <footer className="fixed bottom-0 inset-x-0 bg-white/80 backdrop-blur-md p-4 border-t border-gray-100 flex justify-between items-center px-10">
+      <footer className="fixed bottom-0 inset-x-0 bg-white/80 backdrop-blur-md p-4 border-t border-gray-100 flex justify-between items-center px-10 z-40">
         <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">TODSUAB SMART AI</span>
         <div className={`px-4 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 ${apiKeyStatus.active ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
            <span className={`w-1.5 h-1.5 rounded-full ${apiKeyStatus.active ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-           AI Engine: {apiKeyStatus.label}
+           AI Engine: {apiKeyStatus.label} ({apiKeyStatus.prefix})
         </div>
       </footer>
     </div>
