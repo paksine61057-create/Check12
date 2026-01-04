@@ -31,22 +31,33 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    const apiKey = process.env.API_KEY;
+    // พยายามดึง Key จากช่องทางต่างๆ (Environment หรือ Global)
+    const apiKey = process.env.API_KEY || (window as any).API_KEY;
 
-    // ตรวจสอบเบื้องต้นว่ามี Key หรือไม่ และรูปแบบถูกต้องหรือไม่
-    if (!apiKey || apiKey.trim() === "") {
-      return { answers: [], error: "ไม่พบ API_KEY ในระบบกรุณาตั้งค่าใน Environment Variables", isAuthError: true };
+    if (!apiKey || apiKey === "undefined" || apiKey === "null" || apiKey.trim() === "") {
+      return { answers: [], error: "ยังไม่ได้ตั้งค่า API_KEY ในระบบ (Environment Variable)", isAuthError: true };
     }
 
+    // ตรวจสอบว่ายังเป็น Project ID เก่าหรือไม่
     if (apiKey.startsWith("gen-lang-client")) {
       return { 
         answers: [], 
-        error: "ค่าที่ระบุคือ Project ID ไม่ใช่ API Key กรุณาใช้รหัสที่ขึ้นต้นด้วย 'AIza...'", 
+        error: "พบ Project ID แทนที่จะเป็น API Key กรุณาใช้รหัสที่ขึ้นต้นด้วย 'AIza...'", 
         isAuthError: true 
       };
     }
 
-    const ai = new GoogleGenAI({ apiKey: apiKey });
+    // ตรวจสอบความยาวเบื้องต้น (ปกติ API Key ของ Google จะยาวประมาณ 39-40 ตัวอักษร)
+    if (apiKey.length < 30) {
+      return {
+        answers: [],
+        error: "รูปแบบ API Key ไม่ถูกต้อง (สั้นเกินไป) กรุณาตรวจสอบรหัส 'AIza...' อีกครั้ง",
+        isAuthError: true
+      };
+    }
+
+    // สร้าง Instance ใหม่ทุกครั้งตามกฎเพื่อความสดใหม่ของ Key
+    const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
     
     const systemInstruction = isKey 
       ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบในรูปแบบ JSON { "questions": [...] } โดยใช้ตัวเลือก ก, ข, ค, ง`
@@ -119,8 +130,10 @@ export const analyzeAnswerSheet = async (
     let friendlyError = "AI ประมวลผลภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
     let isAuthError = false;
 
-    if (err.message?.includes("401") || err.message?.includes("API_KEY") || err.message?.includes("invalid")) {
-      friendlyError = "API Key ไม่ถูกต้อง กรุณาใช้รหัส 'AIza...' จาก Google AI Studio";
+    // ตรวจสอบข้อผิดพลาดเฉพาะเจาะจงจาก Google API
+    const errMsg = err.message?.toLowerCase() || "";
+    if (errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid") || errMsg.includes("not found")) {
+      friendlyError = "API Key ไม่ถูกต้อง หรือโปรเจกต์ไม่ได้เปิดใช้งาน API นี้ (โปรดเช็คใน AI Studio)";
       isAuthError = true;
     }
 
