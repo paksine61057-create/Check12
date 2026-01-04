@@ -83,10 +83,13 @@ const App: React.FC = () => {
   };
 
   const deleteSubject = (id: string) => {
-    if (window.confirm('ลบรายวิชานี้?')) {
+    if (window.confirm('ยืนยันการลบรายวิชานี้? ข้อมูลการตรวจทั้งหมดจะหายไปและไม่สามารถกู้คืนได้')) {
       const updated = subjects.filter(s => s.id !== id);
       setSubjects(updated);
-      if (activeSubject?.id === id) setActiveSubject(null);
+      if (activeSubject?.id === id) {
+        setActiveSubject(null);
+        setCurrentStep(AppStep.SUBJECT_LIST);
+      }
     }
   };
 
@@ -247,7 +250,7 @@ const App: React.FC = () => {
                   <div key={s.id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 hover:shadow-md transition">
                     <div className="flex justify-between items-start">
                       <h3 className="text-xl font-black text-gray-800">{s.name}</h3>
-                      <button onClick={() => deleteSubject(s.id)} className="text-red-300 hover:text-red-500">
+                      <button onClick={() => deleteSubject(s.id)} className="text-red-300 hover:text-red-500 transition">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                       </button>
                     </div>
@@ -354,10 +357,17 @@ const App: React.FC = () => {
                 </button>
                 <h2 className="text-3xl font-black text-gray-800">{activeSubject.name}</h2>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button onClick={exportToCSV} className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-green-700 transition flex items-center gap-2">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                   ส่งออก CSV
+                </button>
+                <button 
+                  onClick={() => deleteSubject(activeSubject.id)} 
+                  className="bg-red-50 text-red-600 px-6 py-3 rounded-xl font-bold border border-red-100 hover:bg-red-100 transition flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  ลบวิชานี้
                 </button>
               </div>
             </div>
