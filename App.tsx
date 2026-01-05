@@ -18,7 +18,7 @@ const Navbar = () => (
         <span className="text-[10px] uppercase tracking-widest opacity-70 font-bold">Smart OMR AI Core</span>
       </div>
     </div>
-    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.9 (Review Key Enhanced)</div>
+    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v3.0 Stable</div>
   </nav>
 );
 
@@ -79,7 +79,7 @@ const App: React.FC = () => {
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.9));
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
         };
       };
     });
@@ -90,7 +90,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const base64 = await resizeImage(file);
+      const base64 = await resizeImage(file, 1600);
       const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, true);
       
       if (data.error) { 
@@ -100,7 +100,7 @@ const App: React.FC = () => {
 
       const detectedCount = data.answers.filter(a => a !== null).length;
       if (detectedCount === 0) {
-        setErrorMessage("AI ไม่พบรอยฝนหรือรอยกากบาทในใบเฉลย กรุณาตรวจสอบว่าทำเครื่องหมายชัดเจนหรือไม่");
+        setErrorMessage("ไม่พบข้อมูลเฉลย กรุณาตรวจสอบว่าทำเครื่องหมายในกระดาษชัดเจนและสว่างเพียงพอ");
         return;
       }
 
@@ -124,18 +124,21 @@ const App: React.FC = () => {
     try {
       for (let i = 0; i < files.length; i++) {
         setProcessingProgress({ current: i + 1, total: files.length });
-        const base64 = await resizeImage(files[i], 1280);
+        const base64 = await resizeImage(files[i], 1600); // เพิ่มความละเอียดเป็น 1600 เพื่อความแม่นยำ
         const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, false);
+        
         if (data.error) { 
           setErrorMessage(`แผ่นที่ ${i+1}: ${data.error}`); 
           continue; 
         }
+        
         const answers: QuestionResult[] = data.answers.map((ans, idx) => ({
           questionNo: idx + 1,
           studentAnswer: ans,
           correctAnswer: activeSubject.answerKey[idx],
           isCorrect: ans === activeSubject.answerKey[idx]
         }));
+        
         newResults.push({
           id: Math.random().toString(36).substr(2, 9),
           studentNumber: data.studentId || "",
@@ -204,9 +207,9 @@ const App: React.FC = () => {
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center text-white p-6 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-400 mb-4"></div>
             <p className="text-xl font-black animate-pulse">
-              {currentStep === AppStep.CALIBRATE_KEY ? "กำลังวิเคราะห์เฉลย..." : "กำลังตรวจแผ่นคำตอบนักเรียน..."}
+              {currentStep === AppStep.CALIBRATE_KEY ? "กำลังวิเคราะห์เฉลย..." : "กำลังตรวจแผ่นคำตอบ..."}
             </p>
-            {processingProgress.total > 0 && <p className="mt-2 text-blue-200">ประมวลผลแผ่นที่ {processingProgress.current} จาก {processingProgress.total}</p>}
+            {processingProgress.total > 0 && <p className="mt-2 text-blue-200">แผ่นที่ {processingProgress.current} จาก {processingProgress.total}</p>}
           </div>
         )}
 
@@ -263,7 +266,7 @@ const App: React.FC = () => {
             {!isKeyProcessed ? (
               <div className="text-center space-y-6">
                 <h2 className="text-2xl font-black">อัปโหลดใบเฉลย</h2>
-                <p className="text-gray-400 -mt-4">AI จะตรวจร่องรอย กากบาท (X) ขีดถูก (✓) หรือรอยฝน</p>
+                <p className="text-gray-400 -mt-4">ระบบรองรับรอย กากบาท (X) ขีดถูก (✓) หรือรอยฝน</p>
                 <div className="relative h-64 bg-white border-4 border-dashed border-blue-50 rounded-[2.5rem] flex flex-col items-center justify-center cursor-pointer shadow-sm hover:border-blue-200 transition">
                   <input type="file" accept="image/*" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processKeyImage(e.target.files[0])} />
                   <div className="bg-blue-50 p-4 rounded-full mb-2 group-hover:bg-blue-100 transition">
@@ -276,10 +279,10 @@ const App: React.FC = () => {
             ) : (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="text-center">
-                  <h2 className="text-2xl font-black text-green-600">วิเคราะห์เฉลยเสร็จสิ้น!</h2>
+                  <h2 className="text-2xl font-black text-green-600">วิเคราะห์เฉลยเรียบร้อย!</h2>
                   <div className="flex justify-center gap-4 mt-2">
                     <div className="bg-blue-50 px-4 py-1 rounded-full text-blue-600 text-xs font-black uppercase">
-                      จำนวนทั้งหมด: {activeSubject.totalQuestions} ข้อ
+                      ทั้งหมด: {activeSubject.totalQuestions} ข้อ
                     </div>
                     <div className="bg-green-50 px-4 py-1 rounded-full text-green-600 text-xs font-black uppercase">
                       ตรวจพบ: {activeSubject.answerKey.filter(a => a !== null).length} ข้อ
@@ -302,10 +305,10 @@ const App: React.FC = () => {
 
                 <div className="flex flex-col gap-3">
                   <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg hover:bg-blue-700 transition active:scale-95 text-lg">
-                    ยืนยัน และเริ่มตรวจกระดาษคำตอบ
+                    ยืนยัน และเริ่มตรวจแผ่นคำตอบ
                   </button>
                   <button onClick={() => setIsKeyProcessed(false)} className="w-full text-gray-400 font-bold py-2 hover:text-gray-600 transition">
-                    ถ่ายใหม่ (หากเฉลยไม่ถูกต้อง)
+                    สแกนใหม่ (หากเฉลยไม่ถูกต้อง)
                   </button>
                 </div>
               </div>
@@ -316,7 +319,7 @@ const App: React.FC = () => {
         {currentStep === AppStep.SCAN_STUDENTS && activeSubject && (
           <section className="text-center space-y-10">
              <div className="space-y-2">
-               <h2 className="text-2xl font-black">ตรวจคำตอบ: {activeSubject.name}</h2>
+               <h2 className="text-2xl font-black">ตรวจแผ่นงาน: {activeSubject.name}</h2>
                <p className="text-xs text-gray-400 bg-blue-50 inline-block px-3 py-1 rounded-full font-bold">โหมดตรวจอัตโนมัติ ({activeSubject.totalQuestions} ข้อ)</p>
              </div>
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -332,10 +335,10 @@ const App: React.FC = () => {
                    <div className="bg-gray-50 p-4 rounded-full mb-2 group-hover:bg-blue-50 transition duration-300">
                     <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                    </div>
-                   <span className="text-lg font-black text-gray-500">เลือกภาพจากอัลบั้ม</span>
+                   <span className="text-lg font-black text-gray-500">เลือกจากอัลบั้ม</span>
                 </div>
              </div>
-             <button onClick={() => setCurrentStep(AppStep.VIEW_RESULTS)} className="text-blue-600 font-bold hover:underline">ดูสรุปคะแนนที่ตรวจแล้ว ({activeSubject.results.length} คน)</button>
+             <button onClick={() => setCurrentStep(AppStep.VIEW_RESULTS)} className="text-blue-600 font-bold hover:underline">ดูสรุปที่ตรวจแล้ว ({activeSubject.results.length} คน)</button>
           </section>
         )}
 

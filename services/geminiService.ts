@@ -53,27 +53,24 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
+    // ปรับ Instruction ให้กระชับที่สุดเพื่อลดการเกิด Reasoning Error
     const systemInstruction = isKey 
-      ? `คุณคือ OMR Scanner หน้าที่: อ่าน "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรอยที่ชัดเจน คืนค่า JSON: { "questions": [{"id":1,"marked":"ก"}] }`
-      : `คุณคือ OMR Scanner หน้าที่: อ่าน "กระดาษคำตอบ" ข้อ 1-${totalQuestions} ตรวจจับรอย กากบาท, ขีดถูก หรือระบาย อ่านเลขที่และชื่อนักเรียน คืนค่า JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] }`;
+      ? `You are an OMR scanner for answer keys (1-${totalQuestions}). Detect all marks. Return JSON: { "questions": [{"id":1,"marked":"ก"}] }`
+      : `You are an OMR scanner for student sheets (1-${totalQuestions}). Detect student ID, name, and marks. Return JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] }`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview", // อัปเกรดเป็น Pro เพื่อความเสถียรในการวิเคราะห์ภาพ
+      model: "gemini-3-flash-preview", // ใช้ Flash ซึ่งเสถียรกว่ามากในงาน Vision-to-JSON
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: isKey 
-            ? `Identify markings for keys 1 to ${totalQuestions}.` 
-            : `Extract student ID and markings for questions 1 to ${totalQuestions}.` 
-          }
+          { text: `Extract answers 1 to ${totalQuestions}.` }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0, // ปรับเป็น 0 เพื่อความแม่นยำสูงสุด
+        temperature: 0,
         responseMimeType: "application/json",
-        // ตั้งค่า thinkingBudget เป็น 0 เพื่อแก้ปัญหา Reasoning Error ที่มักเกิดกับงาน Vision
-        thinkingConfig: { thinkingBudget: 0 },
+        // ถอด thinkingConfig ออกเพื่อให้ใช้ Native Vision mode ลดโอกาส Error
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -97,9 +94,7 @@ export const analyzeAnswerSheet = async (
     });
 
     const responseText = response.text;
-    if (!responseText) {
-      throw new Error("Empty Response");
-    }
+    if (!responseText) throw new Error("No Content");
     
     const data = JSON.parse(cleanJsonResponse(responseText));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
@@ -119,11 +114,11 @@ export const analyzeAnswerSheet = async (
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("OMR Service Error:", err);
+    console.error("OMR Error:", err);
     return { 
       answers: [], 
-      error: "ไม่สามารถประมวลผลได้ชั่วคราว (AI Connection Error) กรุณากดปุ่มตรวจใหม่อีกครั้ง", 
-      isAuthError: err.message?.includes("401") 
+      error: "ระบบขัดข้องชั่วคราว (AI Error) กรุณากดปุ่มตรวจใหม่อีกครั้งเพื่อเริ่มการสแกนใหม่", 
+      isAuthError: err.message?.includes("401") || err.message?.includes("API_KEY")
     };
   }
 };
