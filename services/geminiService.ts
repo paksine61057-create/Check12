@@ -28,25 +28,26 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // ป้องกันหน้าจอขาวด้วยการเช็ค typeof process ก่อนเสมอ
+    // ดึง API Key อย่างปลอดภัยที่สุด
     let apiKey = "";
-    
-    const envKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
-    const windowKey = (window as any).API_KEY;
-    
-    apiKey = (envKey || windowKey || "").toString().trim();
+    try {
+      apiKey = (process.env.API_KEY || (window as any).API_KEY || "").toString().trim();
+    } catch (e) {
+      apiKey = ((window as any).API_KEY || "").toString().trim();
+    }
 
-    // ทำความสะอาดรหัส
+    // ล้างเครื่องหมายคำพูดที่อาจแถมมา
     apiKey = apiKey.replace(/^['"]|['"]$/g, ''); 
 
     if (!apiKey || apiKey === "undefined" || apiKey === "null") {
       return { 
         answers: [], 
-        error: "แอปไม่ได้รับรหัส API_KEY จากระบบ Vercel กรุณากด 'Redeploy' ในหน้า Dashboard ของ Vercel", 
+        error: "ไม่พบรหัส API_KEY กรุณากดปุ่ม 'เชื่อมต่อ API Key' หรือตรวจสอบการตั้งค่าใน Vercel", 
         isAuthError: true 
       };
     }
 
+    // สร้าง Instance ใหม่ทุกครั้งที่เรียกเพื่อใช้ Key ล่าสุด
     const ai = new GoogleGenAI({ apiKey: apiKey });
     
     const systemInstruction = isKey 
@@ -117,8 +118,9 @@ export const analyzeAnswerSheet = async (
     let isAuthError = false;
 
     const errMsg = err.message?.toLowerCase() || "";
-    if (errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid")) {
-      friendlyError = "API Key ไม่ถูกต้อง (Unauthorized) กรุณาตรวจสอบรหัส 'AIza...' อีกครั้ง";
+    // หากเกิด Error "Entity not found" ให้รีเซ็ตสถานะเพื่อให้ผู้ใช้เลือก Key ใหม่
+    if (errMsg.includes("not found") || errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid")) {
+      friendlyError = "API Key ไม่ถูกต้อง หรือโครงการไม่ได้เปิดใช้งาน API นี้";
       isAuthError = true;
     }
 

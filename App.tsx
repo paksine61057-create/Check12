@@ -19,7 +19,7 @@ const Navbar = () => (
         <span className="text-[10px] uppercase tracking-widest opacity-70 font-bold">Smart OMR AI Core</span>
       </div>
     </div>
-    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.2</div>
+    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.3 (Final Key Patch)</div>
   </nav>
 );
 
@@ -34,19 +34,64 @@ const App: React.FC = () => {
     found: false, prefix: 'None', source: 'None' 
   });
 
-  // ตรวจสอบสถานะ API Key โดยใช้ typeof เพื่อป้องกัน ReferenceError
-  useEffect(() => {
-    const envKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
-    const windowKey = (window as any).API_KEY;
-    const rawKey = (envKey || windowKey || "").toString().trim();
-    
-    const source = envKey ? "Vercel Environment" : (windowKey ? "Global Variable" : "Not Found");
+  // ฟังก์ชันเช็ค Key แบบละเอียด
+  const checkKeyStatus = async () => {
+    let rawKey = "";
+    let source = "Not Found";
+
+    try {
+      // 1. เช็คจาก process.env (Vercel Build-time)
+      if (typeof process !== 'undefined' && process.env?.API_KEY) {
+        rawKey = process.env.API_KEY;
+        source = "Vercel / System Env";
+      } 
+      // 2. เช็คจาก window global
+      else if ((window as any).API_KEY) {
+        rawKey = (window as any).API_KEY;
+        source = "Global Variable";
+      }
+      
+      // 3. เช็คจาก AI Studio Platform (ถ้ามี)
+      if (!rawKey && (window as any).aistudio?.hasSelectedApiKey) {
+        const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+        if (hasKey) {
+          source = "AI Studio Managed";
+          rawKey = "MANAGED_BY_PLATFORM";
+        }
+      }
+    } catch (e) {
+      console.warn("Key Check Warning:", e);
+    }
+
+    const keyStr = rawKey.toString().trim().replace(/^['"]|['"]$/g, '');
+    const isFound = keyStr.length > 5 && keyStr !== "undefined" && keyStr !== "null";
+
     setApiKeyInfo({
-      found: rawKey.length > 5 && rawKey !== "undefined" && rawKey !== "null",
-      prefix: rawKey && rawKey !== "undefined" ? `${rawKey.substring(0, 10)}...` : 'None',
+      found: isFound,
+      prefix: isFound && keyStr !== "MANAGED_BY_PLATFORM" ? `${keyStr.substring(0, 10)}...` : (isFound ? 'Platform Key' : 'None'),
       source
     });
+  };
+
+  useEffect(() => {
+    checkKeyStatus();
   }, [currentStep, errorMessage]);
+
+  // ฟังก์ชันเปิดหน้าจอเลือก Key
+  const handleOpenKeySelector = async () => {
+    if ((window as any).aistudio?.openSelectKey) {
+      try {
+        await (window as any).aistudio.openSelectKey();
+        // หลังจากเลือกเสร็จ ให้ถือว่าเชื่อมต่อแล้ว (ตามกฎ Race Condition)
+        setErrorMessage(null);
+        await checkKeyStatus();
+      } catch (e) {
+        setErrorMessage("ไม่สามารถเปิดหน้าต่างเลือก API Key ได้");
+      }
+    } else {
+      setErrorMessage("เบราว์เซอร์นี้ไม่รองรับการเลือก Key อัตโนมัติ กรุณาตรวจสอบ Environment Variables ใน Vercel");
+    }
+  };
 
   // Persistence
   useEffect(() => {
@@ -166,26 +211,32 @@ const App: React.FC = () => {
       <Navbar />
 
       <main className="max-w-4xl mx-auto p-4 md:p-8">
-        {/* API KEY TROUBLESHOOTING GUIDE - แสดงเมื่อไม่พบ Key และไม่ทำให้แอป Crash */}
+        {/* TROUBLESHOOTING UI */}
         {!apiKeyInfo.found && currentStep !== AppStep.SUBJECT_LIST && (
-          <div className="mb-8 bg-white border-2 border-red-100 rounded-[2rem] p-8 shadow-sm animate-fadeIn">
-            <div className="flex items-center gap-4 mb-4 text-red-600">
-              <div className="bg-red-100 p-3 rounded-2xl">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <div className="mb-8 bg-white border-2 border-blue-100 rounded-[2rem] p-8 shadow-sm animate-fadeIn">
+            <div className="flex items-center gap-4 mb-4 text-blue-600">
+              <div className="bg-blue-50 p-3 rounded-2xl">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               </div>
-              <h2 className="text-2xl font-black">ไม่พบการตั้งค่า API Key</h2>
+              <h2 className="text-2xl font-black">AI พร้อมใช้งาน แต่ต้องการ API Key</h2>
             </div>
             
-            <div className="space-y-4 text-gray-600 text-sm leading-relaxed">
-              <p className="font-bold text-gray-800">แอปกำลังทำงาน แต่ AI ยังไม่พร้อมใช้งานเนื่องจากยังไม่ได้รับ API Key:</p>
-              <ol className="list-decimal list-inside space-y-2 ml-2">
-                <li>ไปที่ <b>Vercel Dashboard</b> &gt; <b>Settings</b> &gt; <b>Environment Variables</b></li>
-                <li>เพิ่มตัวแปรชื่อ <code className="bg-gray-100 px-2 py-1 rounded text-red-600 font-bold">API_KEY</code></li>
-                <li>ใส่ค่าที่ได้จาก Google AI Studio (AIza...)</li>
-                <li><b>[สำคัญมาก]</b> ไปที่แถบ <b>Deployments</b> แล้วกด <span className="text-blue-600 font-bold">Redeploy</span> ทับตัวล่าสุด</li>
-              </ol>
-              <div className="mt-4 p-4 bg-gray-50 rounded-2xl font-mono text-[10px] break-all border border-gray-100">
-                DEBUG STATUS: {apiKeyInfo.source} | KEY: {apiKeyInfo.prefix}
+            <p className="text-gray-600 mb-6 leading-relaxed">
+              ดูเหมือนว่าแอปไม่สามารถดึงรหัส <code className="bg-gray-100 px-1 rounded">API_KEY</code> จากระบบได้ (อาจเกิดจากการจำกัดของเบราว์เซอร์) โปรดกดปุ่มด้านล่างเพื่อเชื่อมต่อผ่านแพลตฟอร์มโดยตรง:
+            </p>
+
+            <div className="flex flex-col gap-4">
+              <button 
+                onClick={handleOpenKeySelector}
+                className="bg-blue-600 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl shadow-blue-200 hover:bg-blue-700 hover:scale-[1.02] transition active:scale-95 flex items-center justify-center gap-3 animate-pulse"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                เชื่อมต่อ API Key ผ่านแพลตฟอร์ม
+              </button>
+              
+              <div className="text-[10px] text-gray-400 font-mono text-center space-y-1">
+                <div>Source: {apiKeyInfo.source}</div>
+                <div>Status: Offline (No valid key detected)</div>
               </div>
             </div>
           </div>
@@ -202,7 +253,6 @@ const App: React.FC = () => {
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center text-white">
             <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-400 mb-4"></div>
             <p className="text-xl font-bold">AI กำลังทำงาน...</p>
-            {processingProgress.total > 0 && <p className="mt-2 opacity-70">แผ่นที่ {processingProgress.current} / {processingProgress.total}</p>}
           </div>
         )}
 
@@ -311,8 +361,9 @@ const App: React.FC = () => {
 
       <footer className="fixed bottom-0 inset-x-0 bg-white/80 backdrop-blur-md p-4 border-t border-gray-100 flex justify-between items-center px-10">
         <span className="text-[10px] font-black text-gray-300 uppercase">TODSUAB SMART AI</span>
-        <div className={`px-4 py-1 rounded-full text-[10px] font-bold ${apiKeyInfo.found ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-           {apiKeyInfo.found ? `AI READY (${apiKeyInfo.prefix})` : 'AI OFFLINE'}
+        <div className={`px-4 py-1 rounded-full text-[10px] font-bold flex items-center gap-2 ${apiKeyInfo.found ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+           <span className={`w-1.5 h-1.5 rounded-full ${apiKeyInfo.found ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+           {apiKeyInfo.found ? `AI READY (${apiKeyInfo.prefix})` : 'AI OFFLINE (Tap Connect)'}
         </div>
       </footer>
     </div>
