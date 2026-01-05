@@ -56,10 +56,10 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // ปรับปรุง Instruction ให้เข้มงวดเรื่องจำนวนข้อและรูปแบบคำตอบ
+    // ปรับปรุง Instruction ให้มีความฉลาดในการวิเคราะห์ร่องรอยมากขึ้น
     const systemInstruction = isKey 
-      ? `คุณคือผู้เชี่ยวชาญ OMR วิเคราะห์ "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรอย กากบาท (X), ขีดถูก, หรือการระบาย คืน JSON: { "questions": [{"id":1,"marked":"ก"}] } ห้ามข้ามข้อเด็ดขาด ต้องครบ ${totalQuestions} ข้อ`
-      : `คุณคือระบบตรวจข้อสอบอัจฉริยะ อ่านรหัสคำตอบนักเรียนข้อ 1-${totalQuestions} (ก, ข, ค, ง) พร้อมอ่านเลขที่และชื่อ คืน JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] } ต้องคืนค่าให้ครบทุกข้อจาก 1 ถึง ${totalQuestions} หากไม่เห็นรอยให้ใส่ null`;
+      ? `คุณคือผู้เชี่ยวชาญ OMR วิเคราะห์ "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรอย กากบาท (X), ขีดถูก, หรือการระบายอย่างแม่นยำ คืน JSON: { "questions": [{"id":1,"marked":"ก"}] } ต้องครบ ${totalQuestions} ข้อ ห้ามสรุปว่าว่างหากมีร่องรอยการเขียน`
+      : `คุณคือระบบตรวจข้อสอบ OMR ขั้นสูง หน้าที่ของคุณคือวิเคราะห์กระดาษคำตอบนักเรียนข้อ 1-${totalQuestions} อย่างละเอียดที่สุด ตรวจจับร่องรอยการเขียนทุกชนิด (กากบาท X, ขีดถูก, ระบาย) หากมีการแก้ไข (เช่น กากบาททับรอยระบายเดิม) ให้วิเคราะห์เจตนาและเลือกคำตอบล่าสุด อ่านเลขที่และชื่อจากส่วนหัว คืน JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] } ต้องส่งค่ากลับมาให้ครบทุกข้อ ห้ามตกหล่น`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -67,8 +67,8 @@ export const analyzeAnswerSheet = async (
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
           { text: isKey 
-            ? `Extract all answers for keys 1 to ${totalQuestions}. Focus on any markings (circles, crosses, or checks).` 
-            : `Identify student info and ALL answers for questions 1 to ${totalQuestions}. Use 'ก', 'ข', 'ค', 'ง' for choices. Scan carefully for any marks like X or ✓.` 
+            ? `Perform high-precision OMR scan for answer keys 1 to ${totalQuestions}. Focus on intentional marks.` 
+            : `Scan student details and analyze markings for questions 1 to ${totalQuestions}. Be sensitive to faint marks and handle corrections intelligently. Ensure every question ID is present in the output.` 
           }
         ]
       },
@@ -76,7 +76,8 @@ export const analyzeAnswerSheet = async (
         systemInstruction: systemInstruction,
         temperature: 0,
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 512 }, 
+        // เพิ่ม Thinking Budget เป็น 2048 เพื่อให้ AI มีเวลาวิเคราะห์ภาพที่ซับซ้อนหรือรอยจางๆ ได้ดีขึ้น
+        thinkingConfig: { thinkingBudget: 2048 }, 
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -108,7 +109,6 @@ export const analyzeAnswerSheet = async (
       data.questions.forEach((q: any) => {
         const idx = q.id - 1;
         if (idx >= 0 && idx < totalQuestions) {
-          // ใช้ฟังก์ชัน mapToChoice เพื่อความยืดหยุ่นในการรับค่าจาก AI
           answers[idx] = mapToChoice(q.marked);
         }
       });
@@ -121,6 +121,6 @@ export const analyzeAnswerSheet = async (
     };
   } catch (err: any) {
     console.error("OMR Service Error:", err);
-    return { answers: [], error: "ไม่สามารถวิเคราะห์ร่องรอยคำตอบได้ กรุณาลองถ่ายภาพให้ชัดเจนขึ้น", isAuthError: err.message?.includes("401") };
+    return { answers: [], error: "การวิเคราะห์ร่องรอยขัดข้อง (AI Reasoning Error) กรุณาลองถ่ายภาพในที่สว่างขึ้นหรือลองใหม่อีกครั้ง", isAuthError: err.message?.includes("401") };
   }
 };
