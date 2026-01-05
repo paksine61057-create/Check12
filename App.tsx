@@ -18,7 +18,7 @@ const Navbar = () => (
         <span className="text-[10px] uppercase tracking-widest opacity-70 font-bold">Smart OMR AI Core</span>
       </div>
     </div>
-    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.6 (Performance Patch)</div>
+    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.7 (Calibration Fix)</div>
   </nav>
 );
 
@@ -58,8 +58,7 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // ฟังก์ชันย่อขนาดภาพเพื่อความเร็วสูงสุด
-  const resizeImage = (file: File, maxDim: number = 1280): Promise<string> => {
+  const resizeImage = (file: File, maxDim: number = 1600): Promise<string> => { // เพิ่มขนาดเล็กน้อยเป็น 1600 เพื่อให้เห็นรอยฝนชัดขึ้น
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -79,7 +78,7 @@ const App: React.FC = () => {
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.8)); // ใช้ JPEG คุณภาพ 0.8 เพื่อลดขนาดไฟล์
+          resolve(canvas.toDataURL('image/jpeg', 0.9)); // เพิ่มคุณภาพเป็น 0.9 สำหรับงานที่ต้องการความแม่นยำ
         };
       };
     });
@@ -90,14 +89,32 @@ const App: React.FC = () => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const base64 = await resizeImage(file); // ย่อขนาดก่อนส่ง
+      const base64 = await resizeImage(file);
       const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, true);
-      if (data.error) { setErrorMessage(data.error); return; }
+      
+      if (data.error) { 
+        setErrorMessage(data.error); 
+        return; 
+      }
+
+      // ตรวจสอบว่า AI พบคำตอบในใบเฉลยอย่างน้อย 1 ข้อหรือไม่
+      const detectedCount = data.answers.filter(a => a !== null).length;
+      if (detectedCount === 0) {
+        setErrorMessage("AI ไม่พบรอยฝนในใบเฉลย กรุณาถ่ายภาพให้ชัดเจนขึ้นหรือตรวจสอบว่าฝนคำตอบครบถ้วน");
+        return;
+      }
+
       const updated = { ...activeSubject, answerKey: data.answers };
       setActiveSubject(updated);
       setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
-    } catch (err) { setErrorMessage("เกิดข้อผิดพลาดในการประมวลผล"); } 
-    finally { setIsLoading(false); }
+      // เมื่อตรวจเฉลยสำเร็จ ให้แจ้งเตือนและเตรียมตัวไปขั้นตอนถัดไป
+      alert(`วิเคราะห์เฉลยสำเร็จ! พบคำตอบ ${detectedCount} จาก ${activeSubject.totalQuestions} ข้อ`);
+      setCurrentStep(AppStep.SCAN_STUDENTS); // เปลี่ยนไปหน้าตรวจนักเรียนโดยอัตโนมัติเมื่อสำเร็จ
+    } catch (err) { 
+      setErrorMessage("เกิดข้อผิดพลาดในการประมวลผลใบเฉลย"); 
+    } finally { 
+      setIsLoading(false); 
+    }
   };
 
   const processStudentImages = async (files: FileList) => {
@@ -109,9 +126,12 @@ const App: React.FC = () => {
     try {
       for (let i = 0; i < files.length; i++) {
         setProcessingProgress({ current: i + 1, total: files.length });
-        const base64 = await resizeImage(files[i]); // ย่อขนาดทุกใบก่อนส่ง
+        const base64 = await resizeImage(files[i], 1280); // ใบนักเรียนใช้ขนาดเล็กลงเพื่อความเร็ว
         const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, false);
-        if (data.error) { setErrorMessage(`แผ่นที่ ${i+1}: ${data.error}`); continue; }
+        if (data.error) { 
+          setErrorMessage(`แผ่นที่ ${i+1}: ${data.error}`); 
+          continue; 
+        }
         const answers: QuestionResult[] = data.answers.map((ans, idx) => ({
           questionNo: idx + 1,
           studentAnswer: ans,
@@ -133,8 +153,12 @@ const App: React.FC = () => {
         setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
         setCurrentStep(AppStep.VIEW_RESULTS);
       }
-    } catch (err) { setErrorMessage("เกิดข้อผิดพลาด"); } 
-    finally { setIsLoading(false); setProcessingProgress({ current: 0, total: 0 }); }
+    } catch (err) { 
+      setErrorMessage("เกิดข้อผิดพลาดในการตรวจแผ่นคำตอบ"); 
+    } finally { 
+      setIsLoading(false); 
+      setProcessingProgress({ current: 0, total: 0 }); 
+    }
   };
 
   const handleCreateSubject = (name: string, count: number) => {
@@ -145,7 +169,7 @@ const App: React.FC = () => {
   };
 
   const deleteSubject = (id: string) => {
-    if (confirm('ยืนยันการลบ?')) {
+    if (confirm('ยืนยันการลบรายวิชา?')) {
       const updated = subjects.filter(s => s.id !== id);
       setSubjects(updated);
       if (activeSubject?.id === id) { setActiveSubject(null); setCurrentStep(AppStep.SUBJECT_LIST); }
@@ -171,16 +195,18 @@ const App: React.FC = () => {
         )}
 
         {errorMessage && (
-          <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-xl flex justify-between items-center">
+          <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-xl flex justify-between items-center shadow-sm">
             <p className="text-red-700 text-sm font-bold">{errorMessage}</p>
-            <button onClick={() => setErrorMessage(null)} className="text-red-400 font-bold">ปิด</button>
+            <button onClick={() => setErrorMessage(null)} className="text-red-400 font-bold px-2">ปิด</button>
           </div>
         )}
 
         {isLoading && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center text-white p-6">
             <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-400 mb-4"></div>
-            <p className="text-xl font-black animate-pulse">AI กำลังวิเคราะห์ภาพที่ย่อแล้ว...</p>
+            <p className="text-xl font-black animate-pulse">
+              {currentStep === AppStep.CALIBRATE_KEY ? "กำลังวิเคราะห์ใบเฉลยอย่างละเอียด..." : "กำลังตรวจแผ่นคำตอบ..."}
+            </p>
             {processingProgress.total > 0 && <p className="mt-2 text-blue-200">แผ่นที่ {processingProgress.current} จาก {processingProgress.total}</p>}
           </div>
         )}
@@ -200,7 +226,7 @@ const App: React.FC = () => {
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.VIEW_RESULTS); }} className="flex-1 bg-gray-50 py-2.5 rounded-xl font-bold text-gray-600">ผลลัพธ์</button>
-                    <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.SCAN_STUDENTS); }} className="flex-1 bg-blue-600 py-2.5 rounded-xl font-bold text-white">ตรวจข้อสอบ</button>
+                    <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.SCAN_STUDENTS); }} className="flex-1 bg-blue-600 py-2.5 rounded-xl font-bold text-white">ตรวจ</button>
                   </div>
                 </div>
               ))}
@@ -225,13 +251,14 @@ const App: React.FC = () => {
 
         {currentStep === AppStep.CALIBRATE_KEY && activeSubject && (
           <section className="text-center space-y-6">
-            <h2 className="text-2xl font-black">อัปโหลดเฉลย</h2>
-            <div className="relative h-64 bg-white border-4 border-dashed border-blue-50 rounded-[2.5rem] flex flex-col items-center justify-center cursor-pointer shadow-sm">
-              <input type="file" accept="image/*" className="absolute inset-0 opacity-0 z-10" onChange={(e) => e.target.files && processKeyImage(e.target.files[0])} />
+            <h2 className="text-2xl font-black">อัปโหลดใบเฉลย</h2>
+            <p className="text-gray-400 -mt-4">ถ่ายภาพแผ่นคำตอบที่ฝน "เฉลย" ไว้ให้ชัดเจน</p>
+            <div className="relative h-64 bg-white border-4 border-dashed border-blue-50 rounded-[2.5rem] flex flex-col items-center justify-center cursor-pointer shadow-sm hover:border-blue-200 transition">
+              <input type="file" accept="image/*" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processKeyImage(e.target.files[0])} />
               <svg className="w-12 h-12 text-blue-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               <p className="text-blue-600 font-black">แตะเพื่อถ่ายภาพเฉลย</p>
             </div>
-            <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="text-gray-400 font-bold hover:underline">หรือข้ามไปขั้นตอนถัดไป</button>
+            <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="text-gray-400 font-bold hover:underline">หรือข้ามไปขั้นตอนถัดไป (ระบุเฉลยทีหลัง)</button>
           </section>
         )}
 
@@ -239,14 +266,15 @@ const App: React.FC = () => {
           <section className="text-center space-y-10">
              <div className="space-y-2">
                <h2 className="text-2xl font-black">ตรวจคำตอบ: {activeSubject.name}</h2>
+               <p className="text-xs text-gray-400">จำนวนข้อสอบ: {activeSubject.totalQuestions} ข้อ</p>
              </div>
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="relative bg-blue-600 text-white rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-lg">
-                   <input type="file" accept="image/*" capture="environment" className="absolute inset-0 opacity-0 z-10" onChange={(e) => e.target.files && processStudentImages(e.target.files)} />
+                <div className="relative bg-blue-600 text-white rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-lg hover:bg-blue-700 transition">
+                   <input type="file" accept="image/*" capture="environment" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processStudentImages(e.target.files)} />
                    <span className="text-lg font-black">เปิดกล้องสแกน</span>
                 </div>
-                <div className="relative bg-white border-2 border-gray-100 rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-sm">
-                   <input type="file" multiple accept="image/*" className="absolute inset-0 opacity-0 z-10" onChange={(e) => e.target.files && processStudentImages(e.target.files)} />
+                <div className="relative bg-white border-2 border-gray-100 rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-sm hover:border-blue-100 transition">
+                   <input type="file" multiple accept="image/*" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processStudentImages(e.target.files)} />
                    <span className="text-lg font-black text-gray-500">เลือกภาพจากอัลบั้ม</span>
                 </div>
              </div>

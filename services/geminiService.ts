@@ -42,25 +42,26 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // ปรับ Instruction ให้สั้นที่สุดเพื่อความเร็ว
+    // ปรับปรุง Instruction ให้ AI เข้าใจลักษณะ "รอยฝน" มากขึ้น
     const systemInstruction = isKey 
-      ? `คุณคือ OMR Reader วิเคราะห์ "ภาพเฉลย" 1-${totalQuestions} คืน JSON: { "questions": [{"id":1,"marked":"ก"}] }`
-      : `คุณคือ OMR/OCR Reader ตรวจกระดาษคำตอบ 1-${totalQuestions} คืน JSON: { "studentNumber":"...", "studentName":"...", "questions":[] }`;
+      ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" (Answer Key) ข้อ 1-${totalQuestions} มองหารอยฝนหรือสัญลักษณ์ที่ระบุคำตอบที่ถูกต้องอย่างละเอียด คืนค่าเป็น JSON เท่านั้น`
+      : `คุณคือระบบตรวจข้อสอบอัตโนมัติ อ่านรอยฝนคำตอบนักเรียนข้อ 1-${totalQuestions} พร้อมอ่านเลขที่และชื่อ คืนค่าเป็น JSON เท่านั้น`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: isKey ? "Extract answers" : "Score this student" }
+          { text: isKey ? `Extract the correct answers for questions 1 to ${totalQuestions}. Look for filled circles.` : `Identify student info and answers 1 to ${totalQuestions}.` }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0, // ลดความหลากหลายเพื่อให้ตอบเร็วและแม่นยำที่สุด
+        temperature: 0,
         responseMimeType: "application/json",
-        // ปิดโหมดใช้ความคิด (Thinking) เพื่อความเร็วสูงสุดในงาน OMR
-        thinkingConfig: { thinkingBudget: 0 }, 
+        // สำหรับใบเฉลย (isKey) ให้ Thinking Budget เล็กน้อยเพื่อความแม่นยำ 
+        // สำหรับใบนักเรียนให้เป็น 0 เพื่อความเร็วในการตรวจจำนวนมาก
+        thinkingConfig: { thinkingBudget: isKey ? 512 : 0 }, 
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -93,7 +94,12 @@ export const analyzeAnswerSheet = async (
         const idx = q.id - 1;
         if (idx >= 0 && idx < totalQuestions) {
           const val = q.marked;
-          answers[idx] = ['ก', 'ข', 'ค', 'ง', 'multiple'].includes(val) ? val : null;
+          // แปลงค่าจาก AI ให้เป็นรูปแบบที่ระบบรองรับ (ก ข ค ง)
+          if (['ก', 'ข', 'ค', 'ง', 'multiple'].includes(val)) {
+            answers[idx] = val as Choice;
+          } else {
+            answers[idx] = null;
+          }
         }
       });
     }
@@ -105,6 +111,6 @@ export const analyzeAnswerSheet = async (
     };
   } catch (err: any) {
     console.error("OMR Service Error:", err);
-    return { answers: [], error: "ประมวลผลช้าเกินไปหรือไฟล์ใหญ่เกินไป", isAuthError: err.message?.includes("401") };
+    return { answers: [], error: "AI ไม่สามารถวิเคราะห์ภาพได้ กรุณาตรวจสอบความชัดเจนของภาพ", isAuthError: err.message?.includes("401") };
   }
 };
