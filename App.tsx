@@ -34,13 +34,16 @@ const App: React.FC = () => {
     found: false, prefix: 'None', source: 'None' 
   });
 
-  // ตรวจสอบสถานะ API Key ทุกครั้งที่โหลดหรือเปลี่ยนหน้า
+  // ตรวจสอบสถานะ API Key โดยใช้ typeof เพื่อป้องกัน ReferenceError
   useEffect(() => {
-    const key = (process?.env?.API_KEY || (window as any).API_KEY || "").toString().trim();
-    const source = process?.env?.API_KEY ? "Vercel Environment" : ((window as any).API_KEY ? "Global Variable" : "Not Found");
+    const envKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
+    const windowKey = (window as any).API_KEY;
+    const rawKey = (envKey || windowKey || "").toString().trim();
+    
+    const source = envKey ? "Vercel Environment" : (windowKey ? "Global Variable" : "Not Found");
     setApiKeyInfo({
-      found: key.length > 5,
-      prefix: key ? `${key.substring(0, 10)}...` : 'None',
+      found: rawKey.length > 5 && rawKey !== "undefined" && rawKey !== "null",
+      prefix: rawKey && rawKey !== "undefined" ? `${rawKey.substring(0, 10)}...` : 'None',
       source
     });
   }, [currentStep, errorMessage]);
@@ -163,27 +166,26 @@ const App: React.FC = () => {
       <Navbar />
 
       <main className="max-w-4xl mx-auto p-4 md:p-8">
-        {/* API KEY TROUBLESHOOTING GUIDE */}
+        {/* API KEY TROUBLESHOOTING GUIDE - แสดงเมื่อไม่พบ Key และไม่ทำให้แอป Crash */}
         {!apiKeyInfo.found && currentStep !== AppStep.SUBJECT_LIST && (
-          <div className="mb-8 bg-white border-2 border-red-100 rounded-[2rem] p-8 shadow-sm animate-pulse">
+          <div className="mb-8 bg-white border-2 border-red-100 rounded-[2rem] p-8 shadow-sm animate-fadeIn">
             <div className="flex items-center gap-4 mb-4 text-red-600">
               <div className="bg-red-100 p-3 rounded-2xl">
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
               </div>
-              <h2 className="text-2xl font-black">ไม่พบการตั้งค่า API Key ในระบบ</h2>
+              <h2 className="text-2xl font-black">ไม่พบการตั้งค่า API Key</h2>
             </div>
             
             <div className="space-y-4 text-gray-600 text-sm leading-relaxed">
-              <p className="font-bold text-gray-800">หากคุณใส่ค่าใน Vercel แล้วแต่ยังขึ้นหน้านี้ โปรดทำตามขั้นตอนดังนี้:</p>
+              <p className="font-bold text-gray-800">แอปกำลังทำงาน แต่ AI ยังไม่พร้อมใช้งานเนื่องจากยังไม่ได้รับ API Key:</p>
               <ol className="list-decimal list-inside space-y-2 ml-2">
-                <li>ไปที่ <b>Vercel Dashboard</b> ของโปรเจกต์นี้</li>
-                <li>ไปที่แถบ <b>Settings</b> &gt; <b>Environment Variables</b></li>
-                <li>ตรวจสอบว่าชื่อตัวแปรคือ <code className="bg-gray-100 px-2 py-1 rounded text-red-600 font-bold">API_KEY</code> (ต้องพิมพ์ใหญ่ทั้งหมด)</li>
-                <li>ตรวจสอบว่าค่า (Value) ขึ้นต้นด้วย <code className="bg-gray-100 px-2 py-1 rounded">AIza...</code> และไม่มีช่องว่าง</li>
-                <li><b>[สำคัญมาก]</b> ไปที่แถบ <b>Deployments</b> เลือกการ Deploy ล่าสุด แล้วกด <span className="text-blue-600 font-bold">Redeploy</span> เพื่อให้ค่าใหม่ทำงาน</li>
+                <li>ไปที่ <b>Vercel Dashboard</b> &gt; <b>Settings</b> &gt; <b>Environment Variables</b></li>
+                <li>เพิ่มตัวแปรชื่อ <code className="bg-gray-100 px-2 py-1 rounded text-red-600 font-bold">API_KEY</code></li>
+                <li>ใส่ค่าที่ได้จาก Google AI Studio (AIza...)</li>
+                <li><b>[สำคัญมาก]</b> ไปที่แถบ <b>Deployments</b> แล้วกด <span className="text-blue-600 font-bold">Redeploy</span> ทับตัวล่าสุด</li>
               </ol>
               <div className="mt-4 p-4 bg-gray-50 rounded-2xl font-mono text-[10px] break-all border border-gray-100">
-                STATUS: {apiKeyInfo.source} | KEY: {apiKeyInfo.prefix}
+                DEBUG STATUS: {apiKeyInfo.source} | KEY: {apiKeyInfo.prefix}
               </div>
             </div>
           </div>
@@ -204,7 +206,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* STEP VIEWS (Simplified for brevity, maintaining logic) */}
+        {/* STEP VIEWS */}
         {currentStep === AppStep.SUBJECT_LIST && (
           <section className="space-y-6">
             <div className="flex justify-between items-center">
@@ -310,7 +312,7 @@ const App: React.FC = () => {
       <footer className="fixed bottom-0 inset-x-0 bg-white/80 backdrop-blur-md p-4 border-t border-gray-100 flex justify-between items-center px-10">
         <span className="text-[10px] font-black text-gray-300 uppercase">TODSUAB SMART AI</span>
         <div className={`px-4 py-1 rounded-full text-[10px] font-bold ${apiKeyInfo.found ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-           {apiKeyInfo.found ? `AI READY (${apiKeyInfo.prefix})` : 'AI OFLINE'}
+           {apiKeyInfo.found ? `AI READY (${apiKeyInfo.prefix})` : 'AI OFFLINE'}
         </div>
       </footer>
     </div>

@@ -28,11 +28,10 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // การดึงค่า API_KEY ที่รองรับทั้งการแทนที่ที่ Build-time และ Runtime
+    // ป้องกันหน้าจอขาวด้วยการเช็ค typeof process ก่อนเสมอ
     let apiKey = "";
     
-    // พยายามดึงจากหลายช่องทางที่ Vercel อาจจะส่งมา
-    const envKey = process?.env?.API_KEY;
+    const envKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
     const windowKey = (window as any).API_KEY;
     
     apiKey = (envKey || windowKey || "").toString().trim();
@@ -40,7 +39,7 @@ export const analyzeAnswerSheet = async (
     // ทำความสะอาดรหัส
     apiKey = apiKey.replace(/^['"]|['"]$/g, ''); 
 
-    if (!apiKey || apiKey === "undefined") {
+    if (!apiKey || apiKey === "undefined" || apiKey === "null") {
       return { 
         answers: [], 
         error: "แอปไม่ได้รับรหัส API_KEY จากระบบ Vercel กรุณากด 'Redeploy' ในหน้า Dashboard ของ Vercel", 
