@@ -18,7 +18,7 @@ const Navbar = () => (
         <span className="text-[10px] uppercase tracking-widest opacity-70 font-bold">Smart OMR AI Core</span>
       </div>
     </div>
-    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.7 (Calibration Fix)</div>
+    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.8 (Key Review)</div>
   </nav>
 );
 
@@ -29,6 +29,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
+  const [isKeyProcessed, setIsKeyProcessed] = useState(false);
   const [apiKeyInfo, setApiKeyInfo] = useState<{ found: boolean; prefix: string; source: string }>({ 
     found: false, prefix: 'None', source: 'None' 
   });
@@ -58,7 +59,7 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const resizeImage = (file: File, maxDim: number = 1600): Promise<string> => { // เพิ่มขนาดเล็กน้อยเป็น 1600 เพื่อให้เห็นรอยฝนชัดขึ้น
+  const resizeImage = (file: File, maxDim: number = 1600): Promise<string> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -78,7 +79,7 @@ const App: React.FC = () => {
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.9)); // เพิ่มคุณภาพเป็น 0.9 สำหรับงานที่ต้องการความแม่นยำ
+          resolve(canvas.toDataURL('image/jpeg', 0.9));
         };
       };
     });
@@ -97,19 +98,16 @@ const App: React.FC = () => {
         return; 
       }
 
-      // ตรวจสอบว่า AI พบคำตอบในใบเฉลยอย่างน้อย 1 ข้อหรือไม่
       const detectedCount = data.answers.filter(a => a !== null).length;
       if (detectedCount === 0) {
-        setErrorMessage("AI ไม่พบรอยฝนในใบเฉลย กรุณาถ่ายภาพให้ชัดเจนขึ้นหรือตรวจสอบว่าฝนคำตอบครบถ้วน");
+        setErrorMessage("AI ไม่พบรอยฝนหรือรอยกากบาทในใบเฉลย กรุณาตรวจสอบว่าทำเครื่องหมายชัดเจนหรือไม่");
         return;
       }
 
       const updated = { ...activeSubject, answerKey: data.answers };
       setActiveSubject(updated);
       setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
-      // เมื่อตรวจเฉลยสำเร็จ ให้แจ้งเตือนและเตรียมตัวไปขั้นตอนถัดไป
-      alert(`วิเคราะห์เฉลยสำเร็จ! พบคำตอบ ${detectedCount} จาก ${activeSubject.totalQuestions} ข้อ`);
-      setCurrentStep(AppStep.SCAN_STUDENTS); // เปลี่ยนไปหน้าตรวจนักเรียนโดยอัตโนมัติเมื่อสำเร็จ
+      setIsKeyProcessed(true); // แสดงหน้า Review Key
     } catch (err) { 
       setErrorMessage("เกิดข้อผิดพลาดในการประมวลผลใบเฉลย"); 
     } finally { 
@@ -126,7 +124,7 @@ const App: React.FC = () => {
     try {
       for (let i = 0; i < files.length; i++) {
         setProcessingProgress({ current: i + 1, total: files.length });
-        const base64 = await resizeImage(files[i], 1280); // ใบนักเรียนใช้ขนาดเล็กลงเพื่อความเร็ว
+        const base64 = await resizeImage(files[i], 1280);
         const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, false);
         if (data.error) { 
           setErrorMessage(`แผ่นที่ ${i+1}: ${data.error}`); 
@@ -165,6 +163,7 @@ const App: React.FC = () => {
     const newSub: Subject = { id: Date.now().toString(), name, totalQuestions: count, answerKey: new Array(count).fill(null), results: [], createdAt: Date.now() };
     setSubjects([...subjects, newSub]);
     setActiveSubject(newSub);
+    setIsKeyProcessed(false);
     setCurrentStep(AppStep.CALIBRATE_KEY);
   };
 
@@ -202,12 +201,12 @@ const App: React.FC = () => {
         )}
 
         {isLoading && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center text-white p-6">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center text-white p-6 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-400 mb-4"></div>
             <p className="text-xl font-black animate-pulse">
-              {currentStep === AppStep.CALIBRATE_KEY ? "กำลังวิเคราะห์ใบเฉลยอย่างละเอียด..." : "กำลังตรวจแผ่นคำตอบ..."}
+              {currentStep === AppStep.CALIBRATE_KEY ? "กำลังวิเคราะห์เฉลย (กากบาท/ขีดถูก/ระบาย)..." : "กำลังตรวจแผ่นคำตอบนักเรียน..."}
             </p>
-            {processingProgress.total > 0 && <p className="mt-2 text-blue-200">แผ่นที่ {processingProgress.current} จาก {processingProgress.total}</p>}
+            {processingProgress.total > 0 && <p className="mt-2 text-blue-200">ประมวลผลแผ่นที่ {processingProgress.current} จาก {processingProgress.total}</p>}
           </div>
         )}
 
@@ -215,18 +214,22 @@ const App: React.FC = () => {
           <section className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-black text-gray-800">รายวิชา</h2>
-              <button onClick={() => setCurrentStep(AppStep.SETUP_SUBJECT)} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg">+ วิชาใหม่</button>
+              <button onClick={() => setCurrentStep(AppStep.SETUP_SUBJECT)} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg transition hover:scale-105 active:scale-95">+ วิชาใหม่</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {subjects.map(s => (
+              {subjects.length === 0 ? (
+                <div className="col-span-full py-20 text-center text-gray-300 font-bold border-4 border-dashed border-gray-100 rounded-[3rem]">
+                  ยังไม่มีวิชาที่คุณสร้างไว้
+                </div>
+              ) : subjects.map(s => (
                 <div key={s.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-md transition">
                   <div className="flex justify-between mb-4">
                     <h3 className="text-lg font-black">{s.name}</h3>
-                    <button onClick={() => deleteSubject(s.id)} className="text-red-200">ลบ</button>
+                    <button onClick={() => deleteSubject(s.id)} className="text-red-200 hover:text-red-400 transition">ลบ</button>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.VIEW_RESULTS); }} className="flex-1 bg-gray-50 py-2.5 rounded-xl font-bold text-gray-600">ผลลัพธ์</button>
-                    <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.SCAN_STUDENTS); }} className="flex-1 bg-blue-600 py-2.5 rounded-xl font-bold text-white">ตรวจ</button>
+                    <button onClick={() => { setActiveSubject(s); setIsKeyProcessed(false); setCurrentStep(AppStep.VIEW_RESULTS); }} className="flex-1 bg-gray-50 py-2.5 rounded-xl font-bold text-gray-600 transition hover:bg-gray-100">ผลลัพธ์</button>
+                    <button onClick={() => { setActiveSubject(s); setIsKeyProcessed(false); setCurrentStep(AppStep.SCAN_STUDENTS); }} className="flex-1 bg-blue-600 py-2.5 rounded-xl font-bold text-white transition hover:bg-blue-700 shadow-md">ตรวจ</button>
                   </div>
                 </div>
               ))}
@@ -235,30 +238,71 @@ const App: React.FC = () => {
         )}
 
         {currentStep === AppStep.SETUP_SUBJECT && (
-          <section className="bg-white p-8 rounded-[2rem] shadow-xl max-w-sm mx-auto">
-            <h2 className="text-xl font-black mb-6">สร้างรายวิชา</h2>
+          <section className="bg-white p-8 rounded-[2rem] shadow-xl max-w-sm mx-auto border border-gray-50">
+            <h2 className="text-xl font-black mb-6 text-center">สร้างรายวิชาใหม่</h2>
             <form onSubmit={(e) => {
               e.preventDefault();
               const d = new FormData(e.currentTarget);
               handleCreateSubject(d.get('name') as string, parseInt(d.get('count') as string));
             }} className="space-y-4">
-              <input required name="name" placeholder="ชื่อวิชา" className="w-full px-4 py-3 rounded-xl bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500" />
-              <input required name="count" type="number" placeholder="จำนวนข้อ (1-100)" className="w-full px-4 py-3 rounded-xl bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500" />
-              <button type="submit" className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-black shadow-lg">ยืนยัน</button>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase ml-2">ชื่อวิชา</label>
+                <input required name="name" placeholder="เช่น วิทยาศาสตร์ ป.6" className="w-full px-4 py-3 rounded-xl bg-gray-50 outline-none border border-transparent focus:border-blue-500 focus:bg-white transition" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase ml-2">จำนวนข้อสอบ</label>
+                <input required name="count" type="number" min="1" max="100" placeholder="สูงสุด 100 ข้อ" className="w-full px-4 py-3 rounded-xl bg-gray-50 outline-none border border-transparent focus:border-blue-500 focus:bg-white transition" />
+              </div>
+              <button type="submit" className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-black shadow-lg hover:bg-blue-700 transition active:scale-95">ถัดไป: อัปโหลดเฉลย</button>
             </form>
           </section>
         )}
 
         {currentStep === AppStep.CALIBRATE_KEY && activeSubject && (
-          <section className="text-center space-y-6">
-            <h2 className="text-2xl font-black">อัปโหลดใบเฉลย</h2>
-            <p className="text-gray-400 -mt-4">ถ่ายภาพแผ่นคำตอบที่ฝน "เฉลย" ไว้ให้ชัดเจน</p>
-            <div className="relative h-64 bg-white border-4 border-dashed border-blue-50 rounded-[2.5rem] flex flex-col items-center justify-center cursor-pointer shadow-sm hover:border-blue-200 transition">
-              <input type="file" accept="image/*" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processKeyImage(e.target.files[0])} />
-              <svg className="w-12 h-12 text-blue-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-              <p className="text-blue-600 font-black">แตะเพื่อถ่ายภาพเฉลย</p>
-            </div>
-            <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="text-gray-400 font-bold hover:underline">หรือข้ามไปขั้นตอนถัดไป (ระบุเฉลยทีหลัง)</button>
+          <section className="space-y-6">
+            {!isKeyProcessed ? (
+              <div className="text-center space-y-6">
+                <h2 className="text-2xl font-black">อัปโหลดใบเฉลย</h2>
+                <p className="text-gray-400 -mt-4">AI จะตรวจร่องรอย กากบาท (X) ขีดถูก (✓) หรือรอยฝน</p>
+                <div className="relative h-64 bg-white border-4 border-dashed border-blue-50 rounded-[2.5rem] flex flex-col items-center justify-center cursor-pointer shadow-sm hover:border-blue-200 transition">
+                  <input type="file" accept="image/*" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processKeyImage(e.target.files[0])} />
+                  <div className="bg-blue-50 p-4 rounded-full mb-2 group-hover:bg-blue-100 transition">
+                    <svg className="w-12 h-12 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  </div>
+                  <p className="text-blue-600 font-black">แตะเพื่อถ่ายรูปใบเฉลย</p>
+                </div>
+                <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="text-gray-400 font-bold hover:underline">หรือข้ามไปขั้นตอนถัดไป</button>
+              </div>
+            ) : (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="text-center">
+                  <h2 className="text-2xl font-black text-green-600">วิเคราะห์เฉลยเสร็จสิ้น!</h2>
+                  <p className="text-gray-500">กรุณาตรวจสอบความถูกต้องของแต่ละข้อยืนยัน</p>
+                </div>
+                
+                <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden">
+                   <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 max-h-96 overflow-y-auto p-2 scrollbar-hide">
+                      {activeSubject.answerKey.map((ans, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-gray-50 px-3 py-2.5 rounded-xl border border-gray-100">
+                          <span className="text-[10px] font-black text-gray-400 uppercase">ข้อ {idx + 1}</span>
+                          <span className={`text-lg font-black ${ans ? 'text-blue-600' : 'text-red-400 italic text-xs'}`}>
+                            {ans || 'ว่าง'}
+                          </span>
+                        </div>
+                      ))}
+                   </div>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg hover:bg-blue-700 transition active:scale-95 text-lg">
+                    ยืนยันคำตอบ และเริ่มตรวจแผ่นนักเรียน
+                  </button>
+                  <button onClick={() => setIsKeyProcessed(false)} className="w-full text-gray-400 font-bold py-2 hover:text-gray-600 transition">
+                    ถ่ายใหม่ (หากตรวจผิดพลาด)
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
         )}
 
@@ -266,67 +310,88 @@ const App: React.FC = () => {
           <section className="text-center space-y-10">
              <div className="space-y-2">
                <h2 className="text-2xl font-black">ตรวจคำตอบ: {activeSubject.name}</h2>
-               <p className="text-xs text-gray-400">จำนวนข้อสอบ: {activeSubject.totalQuestions} ข้อ</p>
+               <p className="text-xs text-gray-400 bg-blue-50 inline-block px-3 py-1 rounded-full font-bold">จำนวน {activeSubject.totalQuestions} ข้อ</p>
              </div>
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="relative bg-blue-600 text-white rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-lg hover:bg-blue-700 transition">
+                <div className="relative bg-blue-600 text-white rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-lg hover:bg-blue-700 transition active:scale-95 group">
                    <input type="file" accept="image/*" capture="environment" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processStudentImages(e.target.files)} />
+                   <div className="bg-white/20 p-4 rounded-full mb-2 group-hover:scale-110 transition duration-300">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                   </div>
                    <span className="text-lg font-black">เปิดกล้องสแกน</span>
                 </div>
-                <div className="relative bg-white border-2 border-gray-100 rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-sm hover:border-blue-100 transition">
+                <div className="relative bg-white border-2 border-gray-100 rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-sm hover:border-blue-100 transition active:scale-95 group">
                    <input type="file" multiple accept="image/*" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processStudentImages(e.target.files)} />
+                   <div className="bg-gray-50 p-4 rounded-full mb-2 group-hover:bg-blue-50 transition duration-300">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                   </div>
                    <span className="text-lg font-black text-gray-500">เลือกภาพจากอัลบั้ม</span>
                 </div>
              </div>
-             <button onClick={() => setCurrentStep(AppStep.VIEW_RESULTS)} className="text-blue-600 font-bold">ดูสรุปคะแนน ({activeSubject.results.length} คน)</button>
+             <button onClick={() => setCurrentStep(AppStep.VIEW_RESULTS)} className="text-blue-600 font-bold hover:underline">ดูสรุปคะแนนที่ตรวจแล้ว ({activeSubject.results.length} คน)</button>
           </section>
         )}
 
         {currentStep === AppStep.VIEW_RESULTS && activeSubject && (
           <section className="space-y-6">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-black">{activeSubject.name} ({activeSubject.results.length} คน)</h2>
-              <button onClick={() => setCurrentStep(AppStep.SUBJECT_LIST)} className="bg-gray-100 px-4 py-2 rounded-xl font-black">กลับ</button>
+              <div>
+                <h2 className="text-2xl font-black">{activeSubject.name}</h2>
+                <p className="text-gray-400 font-bold text-sm">ตรวจแล้ว {activeSubject.results.length} คน</p>
+              </div>
+              <button onClick={() => setCurrentStep(AppStep.SUBJECT_LIST)} className="bg-gray-100 px-4 py-2 rounded-xl font-black text-gray-600 transition hover:bg-gray-200">กลับ</button>
             </div>
-            <div className="bg-white rounded-[2rem] shadow-lg border border-gray-50 overflow-hidden overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-gray-50">
-                  <tr className="text-[10px] font-black text-gray-400 uppercase border-b">
-                    <th className="px-6 py-4">เลขที่</th>
-                    <th className="px-6 py-4">ชื่อ</th>
-                    <th className="px-6 py-4 text-center">คะแนน</th>
-                    <th className="px-6 py-4">สถานะ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {activeSubject.results.map(r => (
-                    <tr key={r.id} className="hover:bg-gray-50 transition">
-                      <td className="px-6 py-4 font-black">{r.studentNumber || '-'}</td>
-                      <td className="px-6 py-4 font-medium text-gray-600">{r.studentName || 'ไม่ระบุ'}</td>
-                      <td className="px-6 py-4 text-center font-black text-blue-600">{r.totalScore}/{activeSubject.totalQuestions}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-1 rounded-full text-[10px] font-black ${r.hasError ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>
-                          {r.hasError ? '⚠️ ไม่สมบูรณ์' : '✅ สมบูรณ์'}
-                        </span>
-                      </td>
+            <div className="bg-white rounded-[2.5rem] shadow-xl border border-gray-50 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-gray-50">
+                    <tr className="text-[10px] font-black text-gray-400 uppercase border-b">
+                      <th className="px-6 py-4">เลขที่</th>
+                      <th className="px-6 py-4">ชื่อ</th>
+                      <th className="px-6 py-4 text-center">คะแนน</th>
+                      <th className="px-6 py-4">สถานะ</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {activeSubject.results.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-10 text-center text-gray-300 font-bold italic">ยังไม่มีการตรวจแผ่นคำตอบ</td>
+                      </tr>
+                    ) : activeSubject.results.map(r => (
+                      <tr key={r.id} className="hover:bg-gray-50 transition group">
+                        <td className="px-6 py-4 font-black text-gray-800">{r.studentNumber || '-'}</td>
+                        <td className="px-6 py-4 font-medium text-gray-500 group-hover:text-gray-800">{r.studentName || 'ไม่ระบุ'}</td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="font-black text-blue-600 text-lg">{r.totalScore}</span>
+                          <span className="text-gray-300 ml-1 font-bold text-xs">/{activeSubject.totalQuestions}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black ${r.hasError ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>
+                            {r.hasError ? '⚠️ ตรวจไม่ครบ' : '✅ สมบูรณ์'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
             <div className="flex gap-4">
-              <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg">ตรวจเพิ่ม</button>
-              <button onClick={() => window.print()} className="bg-white text-gray-500 px-6 py-4 rounded-2xl font-black border border-gray-100">พิมพ์</button>
+              <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg transition hover:bg-blue-700 active:scale-95 text-lg">ตรวจเพิ่ม</button>
+              <button onClick={() => window.print()} className="bg-white text-gray-500 px-6 py-4 rounded-2xl font-black border border-gray-100 transition hover:bg-gray-50">พิมพ์</button>
             </div>
           </section>
         )}
       </main>
 
-      <footer className="fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md p-4 border-t border-gray-100 flex justify-between items-center px-10 z-40">
-        <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">TODSUAB OMR AI</span>
+      <footer className="fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md p-4 border-t border-gray-100 flex justify-between items-center px-8 z-40 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.05)]">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">TODSUAB OMR AI</span>
+          <span className="text-[8px] text-gray-300 font-bold mt-1">SMART GRADING SYSTEM</span>
+        </div>
         <div className={`px-4 py-1.5 rounded-full text-[10px] font-black flex items-center gap-2 ${apiKeyInfo.found ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-           <span className={`w-1.5 h-1.5 rounded-full ${apiKeyInfo.found ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></span>
-           {apiKeyInfo.found ? `AI ACTIVE` : 'AI OFFLINE'}
+           <span className={`w-1.5 h-1.5 rounded-full ${apiKeyInfo.found ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500 animate-pulse'}`}></span>
+           {apiKeyInfo.found ? `AI ACTIVE (${apiKeyInfo.source})` : 'AI OFFLINE'}
         </div>
       </footer>
     </div>
