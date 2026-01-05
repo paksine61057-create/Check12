@@ -23,6 +23,20 @@ const cleanJsonResponse = (text: string): string => {
   return text.replace(/```json/g, "").replace(/```/g, "").trim();
 };
 
+// ฟังก์ชันแปลงค่าคำตอบจาก AI ให้เป็นมาตรฐาน ก ข ค ง รองรับทั้งไทย อังกฤษ และตัวเลข
+const mapToChoice = (val: any): Choice => {
+  if (val === null || val === undefined) return null;
+  const v = String(val).trim().toUpperCase();
+  // กรณีระบุเป็น ก-ง
+  if (v === 'ก' || v === 'A' || v === '1') return 'ก';
+  if (v === 'ข' || v === 'B' || v === '2') return 'ข';
+  if (v === 'ค' || v === 'C' || v === '3') return 'ค';
+  if (v === 'ง' || v === 'D' || v === '4') return 'ง';
+  // กรณีระบุหลายข้อ
+  if (v === 'MULTIPLE' || v === 'หลายข้อ' || v === 'M') return 'multiple';
+  return null;
+};
+
 export const analyzeAnswerSheet = async (
   base64Image: string,
   totalQuestions: number,
@@ -42,10 +56,10 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // ปรับปรุง Instruction ให้ตรวจจับร่องรอยการเขียนทุกรูปแบบ (กากบาท, ขีดถูก, ระบาย)
+    // ปรับปรุง Instruction ให้เข้มงวดเรื่องจำนวนข้อและรูปแบบคำตอบ
     const systemInstruction = isKey 
-      ? `คุณคือผู้เชี่ยวชาญ OMR วิเคราะห์ "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรหัสคำตอบจากการ กากบาท (X), ขีดถูก, หรือการระบายในช่องวงกลม หากมีการขีดเขียนในช่องใดให้ถือเป็นเฉลยข้อนั้น คืน JSON: { "questions": [{"id":1,"marked":"ก"}] }`
-      : `คุณคือระบบตรวจข้อสอบอัจฉริยะ ตรวจร่องรอยการเลือกคำตอบนักเรียนข้อ 1-${totalQuestions} รองรับทั้งการกากบาท (X), ขีดถูก (Check), หรือการระบาย คืน JSON: { "studentNumber":"...", "studentName":"...", "questions":[] }`;
+      ? `คุณคือผู้เชี่ยวชาญ OMR วิเคราะห์ "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรอย กากบาท (X), ขีดถูก, หรือการระบาย คืน JSON: { "questions": [{"id":1,"marked":"ก"}] } ห้ามข้ามข้อเด็ดขาด ต้องครบ ${totalQuestions} ข้อ`
+      : `คุณคือระบบตรวจข้อสอบอัจฉริยะ อ่านรหัสคำตอบนักเรียนข้อ 1-${totalQuestions} (ก, ข, ค, ง) พร้อมอ่านเลขที่และชื่อ คืน JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] } ต้องคืนค่าให้ครบทุกข้อจาก 1 ถึง ${totalQuestions} หากไม่เห็นรอยให้ใส่ null`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -53,8 +67,8 @@ export const analyzeAnswerSheet = async (
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
           { text: isKey 
-            ? `Identify all marked answers (circles, crosses, or checks) for keys 1 to ${totalQuestions}.` 
-            : `Detect student identity and all marks (crosses, checks, or filled bubbles) for answers 1 to ${totalQuestions}.` 
+            ? `Extract all answers for keys 1 to ${totalQuestions}. Focus on any markings (circles, crosses, or checks).` 
+            : `Identify student info and ALL answers for questions 1 to ${totalQuestions}. Use 'ก', 'ข', 'ค', 'ง' for choices. Scan carefully for any marks like X or ✓.` 
           }
         ]
       },
@@ -62,7 +76,6 @@ export const analyzeAnswerSheet = async (
         systemInstruction: systemInstruction,
         temperature: 0,
         responseMimeType: "application/json",
-        // ให้ Thinking Budget เล็กน้อยเพื่อให้ AI วิเคราะห์ "เจตนา" ของรอยขีดเขียนได้ดีขึ้น
         thinkingConfig: { thinkingBudget: 512 }, 
         responseSchema: {
           type: Type.OBJECT,
@@ -95,12 +108,8 @@ export const analyzeAnswerSheet = async (
       data.questions.forEach((q: any) => {
         const idx = q.id - 1;
         if (idx >= 0 && idx < totalQuestions) {
-          const val = q.marked;
-          if (['ก', 'ข', 'ค', 'ง', 'multiple'].includes(val)) {
-            answers[idx] = val as Choice;
-          } else {
-            answers[idx] = null;
-          }
+          // ใช้ฟังก์ชัน mapToChoice เพื่อความยืดหยุ่นในการรับค่าจาก AI
+          answers[idx] = mapToChoice(q.marked);
         }
       });
     }
