@@ -23,16 +23,13 @@ const cleanJsonResponse = (text: string): string => {
   return text.replace(/```json/g, "").replace(/```/g, "").trim();
 };
 
-// ฟังก์ชันแปลงค่าคำตอบจาก AI ให้เป็นมาตรฐาน ก ข ค ง รองรับทั้งไทย อังกฤษ และตัวเลข
 const mapToChoice = (val: any): Choice => {
   if (val === null || val === undefined) return null;
   const v = String(val).trim().toUpperCase();
-  // กรณีระบุเป็น ก-ง
   if (v === 'ก' || v === 'A' || v === '1') return 'ก';
   if (v === 'ข' || v === 'B' || v === '2') return 'ข';
   if (v === 'ค' || v === 'C' || v === '3') return 'ค';
   if (v === 'ง' || v === 'D' || v === '4') return 'ง';
-  // กรณีระบุหลายข้อ
   if (v === 'MULTIPLE' || v === 'หลายข้อ' || v === 'M') return 'multiple';
   return null;
 };
@@ -56,10 +53,10 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // ปรับปรุง Instruction ให้มีความฉลาดในการวิเคราะห์ร่องรอยมากขึ้น
+    // ปรับปรุง System Instruction ให้เด็ดขาดและลดภาระการคิดที่ซับซ้อนเกินไป (Reasoning) เพื่อความเสถียร
     const systemInstruction = isKey 
-      ? `คุณคือผู้เชี่ยวชาญ OMR วิเคราะห์ "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรอย กากบาท (X), ขีดถูก, หรือการระบายอย่างแม่นยำ คืน JSON: { "questions": [{"id":1,"marked":"ก"}] } ต้องครบ ${totalQuestions} ข้อ ห้ามสรุปว่าว่างหากมีร่องรอยการเขียน`
-      : `คุณคือระบบตรวจข้อสอบ OMR ขั้นสูง หน้าที่ของคุณคือวิเคราะห์กระดาษคำตอบนักเรียนข้อ 1-${totalQuestions} อย่างละเอียดที่สุด ตรวจจับร่องรอยการเขียนทุกชนิด (กากบาท X, ขีดถูก, ระบาย) หากมีการแก้ไข (เช่น กากบาททับรอยระบายเดิม) ให้วิเคราะห์เจตนาและเลือกคำตอบล่าสุด อ่านเลขที่และชื่อจากส่วนหัว คืน JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] } ต้องส่งค่ากลับมาให้ครบทุกข้อ ห้ามตกหล่น`;
+      ? `คุณคือ OMR Scanner หน้าที่: อ่าน "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรอยที่ชัดเจนที่สุด คืนค่า JSON: { "questions": [{"id":1,"marked":"ก"}] } เท่านั้น ห้ามเขียนคำบรรยาย`
+      : `คุณคือ OMR Scanner หน้าที่: อ่าน "กระดาษคำตอบ" ข้อ 1-${totalQuestions} ตรวจจับรอย กากบาท, ขีดถูก หรือระบาย (รวมถึงรอยที่แก้ไขแล้ว) อ่านเลขที่และชื่อนักเรียน คืนค่า JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] } ต้องมีข้อมูลครบทุกข้อจาก 1-${totalQuestions}`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -67,17 +64,16 @@ export const analyzeAnswerSheet = async (
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
           { text: isKey 
-            ? `Perform high-precision OMR scan for answer keys 1 to ${totalQuestions}. Focus on intentional marks.` 
-            : `Scan student details and analyze markings for questions 1 to ${totalQuestions}. Be sensitive to faint marks and handle corrections intelligently. Ensure every question ID is present in the output.` 
+            ? `Identify markings for keys 1 to ${totalQuestions}.` 
+            : `Scan student sheet. Analyze marks for questions 1 to ${totalQuestions}. Be precise with faint marks.` 
           }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0,
+        temperature: 0.1, // เพิ่มความยืดหยุ่นเล็กน้อยเพื่อให้ Vision ทำงานได้เสถียรขึ้นในภาพเดิม
         responseMimeType: "application/json",
-        // เพิ่ม Thinking Budget เป็น 2048 เพื่อให้ AI มีเวลาวิเคราะห์ภาพที่ซับซ้อนหรือรอยจางๆ ได้ดีขึ้น
-        thinkingConfig: { thinkingBudget: 2048 }, 
+        thinkingConfig: { thinkingBudget: 1024 }, // ปรับลดเพื่อลดโอกาสเกิด Timeout หรือ Reasoning Error
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -100,9 +96,12 @@ export const analyzeAnswerSheet = async (
       }
     });
 
-    if (!response.text) throw new Error("AI Timeout");
+    const responseText = response.text;
+    if (!responseText) {
+      throw new Error("AI returned no content");
+    }
     
-    const data = JSON.parse(cleanJsonResponse(response.text));
+    const data = JSON.parse(cleanJsonResponse(responseText));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
     
     if (data.questions && Array.isArray(data.questions)) {
@@ -120,7 +119,12 @@ export const analyzeAnswerSheet = async (
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("OMR Service Error:", err);
-    return { answers: [], error: "การวิเคราะห์ร่องรอยขัดข้อง (AI Reasoning Error) กรุณาลองถ่ายภาพในที่สว่างขึ้นหรือลองใหม่อีกครั้ง", isAuthError: err.message?.includes("401") };
+    console.error("OMR Detailed Error:", err);
+    // หากเกิด Error ซ้ำเดิม ให้แจ้งเตือนโดยแนะนำวิธีแก้ที่ปฏิบัติได้จริง
+    return { 
+      answers: [], 
+      error: "การเชื่อมต่อ AI ติดขัดชั่วคราว หรือภาพมีความสว่างไม่พอ (AI Inference Error) กรุณากดลองอีกครั้งหรือปรับมุมกล้อง", 
+      isAuthError: err.message?.includes("401") 
+    };
   }
 };
