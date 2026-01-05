@@ -26,11 +26,12 @@ const cleanJsonResponse = (text: string): string => {
 const mapToChoice = (val: any): Choice => {
   if (val === null || val === undefined) return null;
   const v = String(val).trim().toUpperCase();
-  if (v === 'ก' || v === 'A' || v === '1') return 'ก';
-  if (v === 'ข' || v === 'B' || v === '2') return 'ข';
-  if (v === 'ค' || v === 'C' || v === '3') return 'ค';
-  if (v === 'ง' || v === 'D' || v === '4') return 'ง';
-  if (v === 'MULTIPLE' || v === 'หลายข้อ' || v === 'M') return 'multiple';
+  // แมปตามตำแหน่งที่ AI ส่งมา หรือตัวอักษร
+  if (v === 'ก' || v === 'A' || v === '1' || v === 'COL1') return 'ก';
+  if (v === 'ข' || v === 'B' || v === '2' || v === 'COL2') return 'ข';
+  if (v === 'ค' || v === 'C' || v === '3' || v === 'COL3') return 'ค';
+  if (v === 'ง' || v === 'D' || v === '4' || v === 'COL4') return 'ง';
+  if (v === 'MULTIPLE' || v === 'M') return 'multiple';
   return null;
 };
 
@@ -53,24 +54,33 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // ปรับ Instruction ให้กระชับที่สุดเพื่อลดการเกิด Reasoning Error
-    const systemInstruction = isKey 
-      ? `You are an OMR scanner for answer keys (1-${totalQuestions}). Detect all marks. Return JSON: { "questions": [{"id":1,"marked":"ก"}] }`
-      : `You are an OMR scanner for student sheets (1-${totalQuestions}). Detect student ID, name, and marks. Return JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] }`;
+    // ปรับ Instruction ให้เน้น "ตำแหน่งในตาราง" ตามที่คุณต้องการ
+    const systemInstruction = `You are an OMR Grid Reader. 
+The image is a grid of answers from question 1 to ${totalQuestions}.
+Layout rules:
+- Each row is a Question ID.
+- Each row has 4 columns representing choices: ก(1), ข(2), ค(3), ง(4).
+- Task: Identify which column is marked (tick, cross, or shaded) in each row.
+- If multiple marks in a row, use "multiple". If empty, use null.
+- For student sheets, also extract "studentNumber" and "studentName" from the top part.
+Return ONLY valid JSON.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview", // ใช้ Flash ซึ่งเสถียรกว่ามากในงาน Vision-to-JSON
+      model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: `Extract answers 1 to ${totalQuestions}.` }
+          { text: isKey 
+            ? `Scan Answer Key for ${totalQuestions} questions. Identify marks in 4 columns.` 
+            : `Scan Student Paper for ${totalQuestions} questions. Identify marks and student info.` 
+          }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
         temperature: 0,
         responseMimeType: "application/json",
-        // ถอด thinkingConfig ออกเพื่อให้ใช้ Native Vision mode ลดโอกาส Error
+        thinkingConfig: { thinkingBudget: 0 }, // ปิด Thinking เพื่อเลี่ยง Error
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -94,11 +104,12 @@ export const analyzeAnswerSheet = async (
     });
 
     const responseText = response.text;
-    if (!responseText) throw new Error("No Content");
+    if (!responseText) throw new Error("Empty Response");
     
     const data = JSON.parse(cleanJsonResponse(responseText));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
     
+    // เติมข้อมูลลง Array ให้ตรงตามข้อ
     if (data.questions && Array.isArray(data.questions)) {
       data.questions.forEach((q: any) => {
         const idx = q.id - 1;
@@ -114,10 +125,10 @@ export const analyzeAnswerSheet = async (
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("OMR Error:", err);
+    console.error("OMR Logic Error:", err);
     return { 
       answers: [], 
-      error: "ระบบขัดข้องชั่วคราว (AI Error) กรุณากดปุ่มตรวจใหม่อีกครั้งเพื่อเริ่มการสแกนใหม่", 
+      error: "AI ประมวลผลภาพไม่สำเร็จ กรุณาลองใหม่ในที่สว่างหรือถ่ายให้เห็นตารางคำตอบชัดเจน", 
       isAuthError: err.message?.includes("401") || err.message?.includes("API_KEY")
     };
   }
