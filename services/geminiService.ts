@@ -2,39 +2,24 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Choice } from "../types";
 
-// Helper สำหรับดึง API Key อย่างปลอดภัยในทุก Environment
 const getSafeApiKey = (): string => {
   let key = "";
   try {
-    // 1. ลองดึงจาก Environment Variables (Vercel)
     const envKey = (typeof process !== 'undefined' && process.env?.API_KEY) ? process.env.API_KEY : "";
-    
-    // 2. ลองดึงจาก Window Global
     const windowKey = (window as any).API_KEY || "";
-
-    // 3. ลองดึงจากที่ผู้ใช้กรอกเองผ่านหน้าเว็บ (Manual Input)
     const manualKey = localStorage.getItem('manual_api_key') || "";
-
     key = envKey || windowKey || manualKey || "";
   } catch (e) {
     key = localStorage.getItem('manual_api_key') || (window as any).API_KEY || "";
   }
-  
-  // ทำความสะอาดค่าที่ได้ (ลบช่องว่าง, ลบเครื่องหมายคำพูด)
   return key.toString().trim().replace(/^['"]|['"]$/g, '');
 };
 
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
-  try {
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start !== -1 && end !== -1 && end > start) {
-      return text.substring(start, end + 1);
-    }
-  } catch (e) {
-    console.error("JSON Clean Error:", e);
-  }
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1) return text.substring(start, end + 1);
   return text.replace(/```json/g, "").replace(/```/g, "").trim();
 };
 
@@ -51,34 +36,31 @@ export const analyzeAnswerSheet = async (
 }> => {
   try {
     const apiKey = getSafeApiKey();
-
-    if (!apiKey || apiKey === "undefined" || apiKey === "null" || apiKey.length < 5) {
-      return { 
-        answers: [], 
-        error: "ไม่พบรหัส API_KEY ในระบบ กรุณากรอกรหัส หรือกดปุ่ม 'เชื่อมต่อ API Key'", 
-        isAuthError: true 
-      };
+    if (!apiKey || apiKey.length < 5) {
+      return { answers: [], error: "กรุณาเชื่อมต่อ API Key ก่อนใช้งาน", isAuthError: true };
     }
 
-    // สร้าง Instance ใหม่ทุกครั้งตามคำแนะนำเพื่อให้ได้ค่า Key ล่าสุด
     const ai = new GoogleGenAI({ apiKey });
     
+    // ปรับ Instruction ให้สั้นที่สุดเพื่อความเร็ว
     const systemInstruction = isKey 
-      ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบในรูปแบบ JSON { "questions": [...] } โดยใช้ตัวเลือก ก, ข, ค, ง`
-      : `คุณคือผู้เชี่ยวชาญด้าน OMR และ OCR ภาษาไทย อ่านเลขที่ ชื่อ และคำตอบนักเรียน ส่งคืน JSON { "studentNumber": "...", "studentName": "...", "questions": [...] }`;
+      ? `คุณคือ OMR Reader วิเคราะห์ "ภาพเฉลย" 1-${totalQuestions} คืน JSON: { "questions": [{"id":1,"marked":"ก"}] }`
+      : `คุณคือ OMR/OCR Reader ตรวจกระดาษคำตอบ 1-${totalQuestions} คืน JSON: { "studentNumber":"...", "studentName":"...", "questions":[] }`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: isKey ? `วิเคราะห์ภาพเฉลย 1-${totalQuestions}` : `ตรวจแผ่นคำตอบ 1-${totalQuestions}` }
+          { text: isKey ? "Extract answers" : "Score this student" }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.1,
+        temperature: 0, // ลดความหลากหลายเพื่อให้ตอบเร็วและแม่นยำที่สุด
         responseMimeType: "application/json",
+        // ปิดโหมดใช้ความคิด (Thinking) เพื่อความเร็วสูงสุดในงาน OMR
+        thinkingConfig: { thinkingBudget: 0 }, 
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -101,7 +83,7 @@ export const analyzeAnswerSheet = async (
       }
     });
 
-    if (!response.text) throw new Error("AI ไม่ตอบสนอง");
+    if (!response.text) throw new Error("AI Timeout");
     
     const data = JSON.parse(cleanJsonResponse(response.text));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
@@ -111,11 +93,7 @@ export const analyzeAnswerSheet = async (
         const idx = q.id - 1;
         if (idx >= 0 && idx < totalQuestions) {
           const val = q.marked;
-          if (['ก', 'ข', 'ค', 'ง', 'multiple'].includes(val)) {
-            answers[idx] = val as Choice;
-          } else {
-            answers[idx] = null;
-          }
+          answers[idx] = ['ก', 'ข', 'ค', 'ง', 'multiple'].includes(val) ? val : null;
         }
       });
     }
@@ -127,15 +105,6 @@ export const analyzeAnswerSheet = async (
     };
   } catch (err: any) {
     console.error("OMR Service Error:", err);
-    let friendlyError = "เกิดข้อผิดพลาดในการประมวลผล";
-    let isAuthError = false;
-
-    const errMsg = err.message?.toLowerCase() || "";
-    if (errMsg.includes("not found") || errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid")) {
-      friendlyError = "API Key ไม่ถูกต้อง หรือไม่มีสิทธิ์เข้าถึง กรุณาตรวจสอบรหัสใหม่อีกครั้ง";
-      isAuthError = true;
-    }
-
-    return { answers: [], error: friendlyError, isAuthError };
+    return { answers: [], error: "ประมวลผลช้าเกินไปหรือไฟล์ใหญ่เกินไป", isAuthError: err.message?.includes("401") };
   }
 };
