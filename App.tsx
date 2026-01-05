@@ -18,7 +18,7 @@ const Navbar = () => (
         <span className="text-[10px] uppercase tracking-widest opacity-70 font-bold">Smart OMR AI Core</span>
       </div>
     </div>
-    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.8 (Key Review)</div>
+    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.9 (Review Key Enhanced)</div>
   </nav>
 );
 
@@ -107,7 +107,7 @@ const App: React.FC = () => {
       const updated = { ...activeSubject, answerKey: data.answers };
       setActiveSubject(updated);
       setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
-      setIsKeyProcessed(true); // แสดงหน้า Review Key
+      setIsKeyProcessed(true);
     } catch (err) { 
       setErrorMessage("เกิดข้อผิดพลาดในการประมวลผลใบเฉลย"); 
     } finally { 
@@ -204,7 +204,7 @@ const App: React.FC = () => {
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center text-white p-6 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-400 mb-4"></div>
             <p className="text-xl font-black animate-pulse">
-              {currentStep === AppStep.CALIBRATE_KEY ? "กำลังวิเคราะห์เฉลย (กากบาท/ขีดถูก/ระบาย)..." : "กำลังตรวจแผ่นคำตอบนักเรียน..."}
+              {currentStep === AppStep.CALIBRATE_KEY ? "กำลังวิเคราะห์เฉลย..." : "กำลังตรวจแผ่นคำตอบนักเรียน..."}
             </p>
             {processingProgress.total > 0 && <p className="mt-2 text-blue-200">ประมวลผลแผ่นที่ {processingProgress.current} จาก {processingProgress.total}</p>}
           </div>
@@ -277,13 +277,20 @@ const App: React.FC = () => {
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="text-center">
                   <h2 className="text-2xl font-black text-green-600">วิเคราะห์เฉลยเสร็จสิ้น!</h2>
-                  <p className="text-gray-500">กรุณาตรวจสอบความถูกต้องของแต่ละข้อยืนยัน</p>
+                  <div className="flex justify-center gap-4 mt-2">
+                    <div className="bg-blue-50 px-4 py-1 rounded-full text-blue-600 text-xs font-black uppercase">
+                      จำนวนทั้งหมด: {activeSubject.totalQuestions} ข้อ
+                    </div>
+                    <div className="bg-green-50 px-4 py-1 rounded-full text-green-600 text-xs font-black uppercase">
+                      ตรวจพบ: {activeSubject.answerKey.filter(a => a !== null).length} ข้อ
+                    </div>
+                  </div>
                 </div>
                 
                 <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden">
                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 max-h-96 overflow-y-auto p-2 scrollbar-hide">
                       {activeSubject.answerKey.map((ans, idx) => (
-                        <div key={idx} className="flex items-center justify-between bg-gray-50 px-3 py-2.5 rounded-xl border border-gray-100">
+                        <div key={idx} className="flex items-center justify-between bg-gray-50 px-3 py-2.5 rounded-xl border border-gray-100 group hover:border-blue-200 transition">
                           <span className="text-[10px] font-black text-gray-400 uppercase">ข้อ {idx + 1}</span>
                           <span className={`text-lg font-black ${ans ? 'text-blue-600' : 'text-red-400 italic text-xs'}`}>
                             {ans || 'ว่าง'}
@@ -295,10 +302,10 @@ const App: React.FC = () => {
 
                 <div className="flex flex-col gap-3">
                   <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg hover:bg-blue-700 transition active:scale-95 text-lg">
-                    ยืนยันคำตอบ และเริ่มตรวจแผ่นนักเรียน
+                    ยืนยัน และเริ่มตรวจกระดาษคำตอบ
                   </button>
                   <button onClick={() => setIsKeyProcessed(false)} className="w-full text-gray-400 font-bold py-2 hover:text-gray-600 transition">
-                    ถ่ายใหม่ (หากตรวจผิดพลาด)
+                    ถ่ายใหม่ (หากเฉลยไม่ถูกต้อง)
                   </button>
                 </div>
               </div>
@@ -310,7 +317,7 @@ const App: React.FC = () => {
           <section className="text-center space-y-10">
              <div className="space-y-2">
                <h2 className="text-2xl font-black">ตรวจคำตอบ: {activeSubject.name}</h2>
-               <p className="text-xs text-gray-400 bg-blue-50 inline-block px-3 py-1 rounded-full font-bold">จำนวน {activeSubject.totalQuestions} ข้อ</p>
+               <p className="text-xs text-gray-400 bg-blue-50 inline-block px-3 py-1 rounded-full font-bold">โหมดตรวจอัตโนมัติ ({activeSubject.totalQuestions} ข้อ)</p>
              </div>
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="relative bg-blue-600 text-white rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-lg hover:bg-blue-700 transition active:scale-95 group">
