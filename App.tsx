@@ -4,21 +4,14 @@ import { Subject, AppStep, Choice, StudentResult, QuestionResult } from './types
 import { analyzeAnswerSheet } from './services/geminiService';
 
 const Navbar = () => (
-  <nav className="bg-blue-600 text-white p-4 shadow-lg flex justify-between items-center sticky top-0 z-50">
+  <nav className="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-50">
     <div className="flex items-center gap-3">
-      <div className="bg-white p-1.5 rounded-xl shadow-inner">
-        <svg className="w-8 h-8 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" />
-          <path d="M12 15.5l-4.5 2 4.5-10 4.5 10z" opacity=".3" />
-          <path d="M12 11l-2 4.5h4z" />
-        </svg>
+      <div className="bg-white p-1 rounded-lg">
+        <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" /></svg>
       </div>
-      <div>
-        <h1 className="text-xl font-bold tracking-tight leading-none">ระบบตอดสวบ</h1>
-        <span className="text-[10px] uppercase tracking-widest opacity-70 font-bold">Smart OMR AI Core</span>
-      </div>
+      <h1 className="text-lg font-bold">ระบบตอดสวบ AI</h1>
     </div>
-    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v3.1 Stable</div>
+    <div className="text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono uppercase">Stable v3.2</div>
   </nav>
 );
 
@@ -30,360 +23,268 @@ const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
   const [isKeyProcessed, setIsKeyProcessed] = useState(false);
-  const [apiKeyInfo, setApiKeyInfo] = useState<{ found: boolean; prefix: string; source: string }>({ 
-    found: false, prefix: 'None', source: 'None' 
-  });
+  const [apiKeyInfo, setApiKeyInfo] = useState({ found: false, source: 'None' });
   const [manualKey, setManualKey] = useState(localStorage.getItem('manual_api_key') || '');
 
-  const checkKeyStatus = async () => {
-    let rawKey = "";
-    let source = "Not Detected";
-    try {
-      const envKey = (typeof process !== 'undefined' && process.env?.API_KEY) ? process.env.API_KEY : "";
-      const windowKey = (window as any).API_KEY || "";
-      const storedKey = localStorage.getItem('manual_api_key') || "";
-      if (envKey && envKey !== "undefined") { rawKey = envKey; source = "System Env"; } 
-      else if (windowKey) { rawKey = windowKey; source = "Global"; }
-      else if (storedKey) { rawKey = storedKey; source = "Manual (Saved)"; }
-    } catch (e) {}
-    const exists = rawKey.length > 5;
-    setApiKeyInfo({ found: exists, prefix: exists ? 'Active' : 'None', source });
+  const checkKeyStatus = () => {
+    const key = (typeof process !== 'undefined' && process.env?.API_KEY) || (window as any).API_KEY || localStorage.getItem('manual_api_key');
+    setApiKeyInfo({ found: !!key && key.length > 10, source: key ? 'Connected' : 'Missing' });
   };
 
   useEffect(() => {
     checkKeyStatus();
-    const timer = setInterval(checkKeyStatus, 3000);
-    return () => clearInterval(timer);
+    const t = setInterval(checkKeyStatus, 3000);
+    return () => clearInterval(t);
   }, []);
 
-  const resizeImage = (file: File, maxDim: number = 1600): Promise<string> => {
+  const resizeImage = (file: File): Promise<string> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
-      reader.onload = (event) => {
+      reader.onload = (e) => {
         const img = new Image();
-        img.src = event.target?.result as string;
+        img.src = e.target?.result as string;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-          if (width > height) {
-            if (width > maxDim) { height *= maxDim / width; width = maxDim; }
-          } else {
-            if (height > maxDim) { width *= maxDim / height; height = maxDim; }
-          }
-          canvas.width = width;
-          canvas.height = height;
+          const maxDim = 1600;
+          let w = img.width, h = img.height;
+          if (w > h) { if (w > maxDim) { h *= maxDim / w; w = maxDim; } }
+          else { if (h > maxDim) { w *= maxDim / h; h = maxDim; } }
+          canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.9));
+          ctx?.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
         };
       };
     });
   };
 
+  const toggleChoice = (idx: number) => {
+    if (!activeSubject) return;
+    const choices: Choice[] = ['ก', 'ข', 'ค', 'ง', null];
+    const current = activeSubject.answerKey[idx];
+    const nextIdx = (choices.indexOf(current) + 1) % choices.length;
+    const newKey = [...activeSubject.answerKey];
+    newKey[idx] = choices[nextIdx];
+    
+    const updated = { ...activeSubject, answerKey: newKey };
+    setActiveSubject(updated);
+    setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
+  };
+
   const processKeyImage = async (file: File) => {
     if (!activeSubject) return;
-    setIsLoading(true);
-    setErrorMessage(null);
+    setIsLoading(true); setErrorMessage(null);
     try {
-      const base64 = await resizeImage(file, 1600);
+      const base64 = await resizeImage(file);
       const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, true);
-      
-      if (data.error) { 
-        setErrorMessage(data.error); 
-        return; 
-      }
-
+      if (data.error) { setErrorMessage(data.error); return; }
       const updated = { ...activeSubject, answerKey: data.answers };
       setActiveSubject(updated);
-      setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
       setIsKeyProcessed(true);
-    } catch (err) { 
-      setErrorMessage("เกิดข้อผิดพลาดในการประมวลผลใบเฉลย"); 
-    } finally { 
-      setIsLoading(false); 
-    }
+    } catch (err) { setErrorMessage("เกิดข้อผิดพลาดในการประมวลผล"); }
+    finally { setIsLoading(false); }
   };
 
   const processStudentImages = async (files: FileList) => {
     if (!activeSubject) return;
-    setIsLoading(true);
-    setErrorMessage(null);
+    setIsLoading(true); setErrorMessage(null);
     setProcessingProgress({ current: 0, total: files.length });
-    const newResults: StudentResult[] = [];
+    const results = [...activeSubject.results];
     try {
       for (let i = 0; i < files.length; i++) {
         setProcessingProgress({ current: i + 1, total: files.length });
-        const base64 = await resizeImage(files[i], 1600);
+        const base64 = await resizeImage(files[i]);
         const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, false);
-        
-        if (data.error) { 
-          setErrorMessage(`แผ่นที่ ${i+1}: ${data.error}`); 
-          continue; 
-        }
-        
+        if (data.error) continue;
         const answers: QuestionResult[] = data.answers.map((ans, idx) => ({
           questionNo: idx + 1,
           studentAnswer: ans,
           correctAnswer: activeSubject.answerKey[idx],
           isCorrect: ans === activeSubject.answerKey[idx]
         }));
-        
-        newResults.push({
+        results.push({
           id: Math.random().toString(36).substr(2, 9),
           studentNumber: data.studentId || "",
           studentName: data.studentName || "",
           answers,
           totalScore: answers.filter(a => a.isCorrect).length,
-          hasError: data.answers.some(a => a === null),
+          hasError: data.answers.some(a => a === null)
         });
       }
-      if (newResults.length > 0) {
-        const updated = { ...activeSubject, results: [...activeSubject.results, ...newResults] };
-        setActiveSubject(updated);
-        setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
-        setCurrentStep(AppStep.VIEW_RESULTS);
-      }
-    } catch (err) { 
-      setErrorMessage("เกิดข้อผิดพลาดในการตรวจแผ่นคำตอบ"); 
-    } finally { 
-      setIsLoading(false); 
-      setProcessingProgress({ current: 0, total: 0 }); 
-    }
-  };
-
-  const handleCreateSubject = (name: string, count: number) => {
-    const newSub: Subject = { id: Date.now().toString(), name, totalQuestions: count, answerKey: new Array(count).fill(null), results: [], createdAt: Date.now() };
-    setSubjects([...subjects, newSub]);
-    setActiveSubject(newSub);
-    setIsKeyProcessed(false);
-    setCurrentStep(AppStep.CALIBRATE_KEY);
-  };
-
-  const deleteSubject = (id: string) => {
-    if (confirm('ยืนยันการลบรายวิชา?')) {
-      const updated = subjects.filter(s => s.id !== id);
-      setSubjects(updated);
-      if (activeSubject?.id === id) { setActiveSubject(null); setCurrentStep(AppStep.SUBJECT_LIST); }
-    }
+      const updated = { ...activeSubject, results };
+      setActiveSubject(updated);
+      setSubjects(subjects.map(s => s.id === updated.id ? updated : s));
+      setCurrentStep(AppStep.VIEW_RESULTS);
+    } catch (err) { setErrorMessage("ตรวจแผ่นงานไม่สำเร็จ"); }
+    finally { setIsLoading(false); }
   };
 
   return (
-    <div className="min-h-screen pb-20 bg-[#f8fafc]">
+    <div className="min-h-screen bg-[#f1f5f9]">
       <Navbar />
-      <main className="max-w-4xl mx-auto p-4 md:p-8">
+      <main className="max-w-2xl mx-auto p-4 space-y-4">
+        
+        {/* API Key Section */}
         {!apiKeyInfo.found && currentStep !== AppStep.SUBJECT_LIST && (
-          <div className="mb-8 bg-white border-2 border-amber-100 rounded-[2rem] p-8 shadow-sm">
-            <h2 className="text-xl font-black text-amber-600 mb-4 flex items-center gap-2">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
-              เชื่อมต่อ API Key ก่อนใช้งาน
-            </h2>
-            <div className="flex gap-2 mb-4">
-              <input type="password" placeholder="AIza..." value={manualKey} onChange={(e) => setManualKey(e.target.value)} className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-xs font-mono" />
-              <button onClick={() => { localStorage.setItem('manual_api_key', manualKey.trim()); checkKeyStatus(); alert("บันทึกแล้ว"); }} className="bg-blue-600 text-white px-6 rounded-xl font-black">บันทึก</button>
+          <div className="bg-amber-50 border-2 border-amber-200 p-4 rounded-2xl space-y-3">
+            <p className="text-amber-800 text-sm font-bold">⚠️ กรุณาตั้งค่า API Key เพื่อเริ่มใช้งาน AI</p>
+            <div className="flex gap-2">
+              <input type="password" placeholder="AIza..." value={manualKey} onChange={e => setManualKey(e.target.value)} className="flex-1 p-2 rounded-lg border border-amber-200 text-xs" />
+              <button onClick={() => { localStorage.setItem('manual_api_key', manualKey); checkKeyStatus(); }} className="bg-amber-600 text-white px-4 py-2 rounded-lg text-xs font-bold">บันทึก</button>
             </div>
           </div>
         )}
 
-        {errorMessage && (
-          <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-xl flex justify-between items-center shadow-sm">
-            <p className="text-red-700 text-sm font-bold">{errorMessage}</p>
-            <button onClick={() => setErrorMessage(null)} className="text-red-400 font-bold px-2">ปิด</button>
-          </div>
-        )}
+        {errorMessage && <div className="bg-red-500 text-white p-4 rounded-xl text-sm font-bold shadow-lg animate-bounce">{errorMessage}</div>}
 
         {isLoading && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center text-white p-6 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-400 mb-4"></div>
-            <p className="text-xl font-black animate-pulse">กำลังประมวลผลภาพ...</p>
-            {processingProgress.total > 0 && <p className="mt-2 text-blue-200">แผ่นที่ {processingProgress.current} / {processingProgress.total}</p>}
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex flex-col items-center justify-center text-white p-6">
+            <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-lg font-bold">กำลังตรวจจับตาราง ก ข ค ง...</p>
+            {processingProgress.total > 0 && <p className="text-xs opacity-70 mt-1">แผ่นที่ {processingProgress.current} / {processingProgress.total}</p>}
           </div>
         )}
 
         {currentStep === AppStep.SUBJECT_LIST && (
-          <section className="space-y-6">
+          <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-black text-gray-800">รายวิชา</h2>
-              <button onClick={() => setCurrentStep(AppStep.SETUP_SUBJECT)} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg transition hover:scale-105 active:scale-95">+ วิชาใหม่</button>
+              <h2 className="text-xl font-bold text-gray-800">รายวิชาของฉัน</h2>
+              <button onClick={() => setCurrentStep(AppStep.SETUP_SUBJECT)} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold shadow-lg">+ เพิ่มวิชา</button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {subjects.length === 0 ? (
-                <div className="col-span-full py-20 text-center text-gray-300 font-bold border-4 border-dashed border-gray-100 rounded-[3rem]">
-                  ยังไม่มีวิชาที่คุณสร้างไว้
-                </div>
-              ) : subjects.map(s => (
-                <div key={s.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
-                  <div className="flex justify-between mb-4">
-                    <h3 className="text-lg font-black">{s.name}</h3>
-                    <button onClick={() => deleteSubject(s.id)} className="text-red-200 hover:text-red-400 transition">ลบ</button>
+            {subjects.length === 0 ? (
+              <div className="bg-white p-12 text-center rounded-3xl border-2 border-dashed border-gray-200 text-gray-400 font-medium">ยังไม่มีข้อมูลวิชา</div>
+            ) : (
+              subjects.map(s => (
+                <div key={s.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
+                  <div>
+                    <h3 className="font-bold text-gray-800">{s.name}</h3>
+                    <p className="text-xs text-gray-400">{s.totalQuestions} ข้อ | ตรวจแล้ว {s.results.length} คน</p>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.VIEW_RESULTS); }} className="flex-1 bg-gray-50 py-2.5 rounded-xl font-bold text-gray-600">ผลลัพธ์</button>
-                    <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.SCAN_STUDENTS); }} className="flex-1 bg-blue-600 py-2.5 rounded-xl font-bold text-white shadow-md">ตรวจงาน</button>
+                  <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.SCAN_STUDENTS); }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold">ตรวจงาน</button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {currentStep === AppStep.SETUP_SUBJECT && (
+          <div className="bg-white p-6 rounded-3xl shadow-lg space-y-4">
+            <h2 className="text-center font-bold">สร้างวิชาใหม่</h2>
+            <form onSubmit={e => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              const name = f.get('name') as string;
+              const count = parseInt(f.get('count') as string);
+              const newSub = { id: Date.now().toString(), name, totalQuestions: count, answerKey: new Array(count).fill(null), results: [], createdAt: Date.now() };
+              setSubjects([...subjects, newSub]); setActiveSubject(newSub); setIsKeyProcessed(false); setCurrentStep(AppStep.CALIBRATE_KEY);
+            }} className="space-y-4">
+              <input required name="name" placeholder="ชื่อรายวิชา" className="w-full p-3 bg-gray-50 rounded-xl outline-none focus:ring-2 ring-blue-500" />
+              <input required name="count" type="number" placeholder="จำนวนข้อ (เช่น 20)" className="w-full p-3 bg-gray-50 rounded-xl outline-none focus:ring-2 ring-blue-500" />
+              <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold">ถัดไป: สแกนใบเฉลย</button>
+            </form>
+          </div>
+        )}
+
+        {currentStep === AppStep.CALIBRATE_KEY && activeSubject && (
+          <div className="space-y-4">
+            {!isKeyProcessed ? (
+              <div className="bg-white p-8 rounded-3xl border-4 border-dashed border-gray-100 text-center space-y-4">
+                <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /></svg>
+                </div>
+                <h2 className="font-bold">ถ่ายภาพใบเฉลย</h2>
+                <p className="text-xs text-gray-400 leading-relaxed">วางใบเฉลยให้ตรงแนว สว่างๆ <br/>AI จะอ่านตามแนวราบ ก ข ค ง</p>
+                <div className="relative">
+                  <input type="file" accept="image/*" capture="environment" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => e.target.files && processKeyImage(e.target.files[0])} />
+                  <button className="bg-blue-600 text-white w-full py-3 rounded-xl font-bold shadow-lg">เปิดกล้องถ่ายภาพ</button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+                <div className="bg-green-50 p-4 rounded-2xl border border-green-200 text-center">
+                  <h2 className="font-bold text-green-700">สแกนเฉลยเรียบร้อย!</h2>
+                  <p className="text-[10px] text-green-600 font-bold uppercase mt-1">💡 หากข้อไหนผิด คลิกที่ตัวเลือกเพื่อแก้ไขได้เลย</p>
+                </div>
+                
+                <div className="bg-white rounded-3xl p-4 shadow-sm grid grid-cols-2 gap-2 max-h-80 overflow-y-auto">
+                  {activeSubject.answerKey.map((ans, idx) => (
+                    <div key={idx} onClick={() => toggleChoice(idx)} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-blue-50 transition border border-transparent hover:border-blue-200">
+                      <span className="text-[10px] font-bold text-gray-400">ข้อ {idx + 1}</span>
+                      <span className={`font-bold text-lg ${ans ? 'text-blue-600' : 'text-red-400'}`}>{ans || '?'}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  <button onClick={() => setIsKeyProcessed(false)} className="flex-1 py-3 text-gray-400 font-bold">ถ่ายใหม่</button>
+                  <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="flex-[2] bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg">เฉลยถูกต้องแล้ว เริ่มตรวจ</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {currentStep === AppStep.SCAN_STUDENTS && activeSubject && (
+          <div className="space-y-6 text-center">
+            <div className="space-y-1">
+              <h2 className="font-bold text-xl">ตรวจงานวิชา: {activeSubject.name}</h2>
+              <p className="text-xs text-gray-400">สแกนแผ่นงานนักเรียน (1 หรือหลายแผ่นพร้อมกัน)</p>
+            </div>
+            
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center gap-4">
+               <div className="w-20 h-20 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xl animate-pulse">
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /></svg>
+               </div>
+               <div className="relative w-full">
+                  <input type="file" multiple accept="image/*" capture="environment" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => e.target.files && processStudentImages(e.target.files)} />
+                  <button className="bg-blue-600 text-white w-full py-4 rounded-2xl font-bold text-lg shadow-lg">สแกนแผ่นงานนักเรียน</button>
+               </div>
+               <button onClick={() => setCurrentStep(AppStep.VIEW_RESULTS)} className="text-blue-600 font-bold text-sm">ดูผลลัพธ์ที่ตรวจแล้ว</button>
+            </div>
+          </div>
+        )}
+
+        {currentStep === AppStep.VIEW_RESULTS && activeSubject && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-end">
+              <h2 className="font-bold text-xl leading-none">{activeSubject.name}</h2>
+              <button onClick={() => setCurrentStep(AppStep.SUBJECT_LIST)} className="text-xs font-bold text-gray-400 uppercase">ปิด</button>
+            </div>
+            
+            <div className="space-y-2">
+              {activeSubject.results.map(r => (
+                <div key={r.id} className="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center border border-gray-50">
+                  <div className="flex gap-3 items-center">
+                    <div className="bg-blue-50 text-blue-600 w-10 h-10 rounded-xl flex items-center justify-center font-bold">
+                      {r.studentNumber || '?'}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-gray-700">{r.studentName || 'ไม่ทราบชื่อ'}</h4>
+                      {r.hasError && <p className="text-[10px] text-amber-500 font-bold">⚠️ มีบางข้ออ่านไม่ออก</p>}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xl font-black text-blue-600">{r.totalScore}</span>
+                    <span className="text-[10px] text-gray-300 ml-0.5 font-bold">/{activeSubject.totalQuestions}</span>
                   </div>
                 </div>
               ))}
             </div>
-          </section>
-        )}
 
-        {currentStep === AppStep.SETUP_SUBJECT && (
-          <section className="bg-white p-8 rounded-[2rem] shadow-xl max-w-sm mx-auto border border-gray-50">
-            <h2 className="text-xl font-black mb-6 text-center">สร้างรายวิชา</h2>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              const d = new FormData(e.currentTarget);
-              handleCreateSubject(d.get('name') as string, parseInt(d.get('count') as string));
-            }} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-black text-gray-400 uppercase ml-2">ชื่อวิชา</label>
-                <input required name="name" placeholder="ระบุชื่อวิชา" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-transparent focus:border-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-gray-400 uppercase ml-2">จำนวนข้อ</label>
-                <input required name="count" type="number" min="1" max="100" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-transparent focus:border-blue-500 outline-none" />
-              </div>
-              <button type="submit" className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-black shadow-lg">ถัดไป: สแกนเฉลย</button>
-            </form>
-          </section>
-        )}
-
-        {currentStep === AppStep.CALIBRATE_KEY && activeSubject && (
-          <section className="space-y-6">
-            {!isKeyProcessed ? (
-              <div className="text-center space-y-6">
-                <h2 className="text-2xl font-black">สแกนใบเฉลย</h2>
-                <p className="text-gray-400 -mt-4">ถ่ายภาพใบเฉลยที่มีเครื่องหมาย ก ข ค ง ชัดเจน</p>
-                <div className="relative h-64 bg-white border-4 border-dashed border-blue-50 rounded-[2.5rem] flex flex-col items-center justify-center cursor-pointer shadow-sm hover:border-blue-200 transition">
-                  <input type="file" accept="image/*" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processKeyImage(e.target.files[0])} />
-                  <div className="bg-blue-50 p-4 rounded-full mb-2">
-                    <svg className="w-12 h-12 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                  </div>
-                  <p className="text-blue-600 font-black">แตะเพื่อถ่ายภาพเฉลย</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="text-center">
-                  <h2 className="text-2xl font-black text-green-600">สแกนสำเร็จ!</h2>
-                  <p className="text-gray-400">กรุณาตรวจสอบความถูกต้องของเฉลยด้านล่าง</p>
-                </div>
-                
-                <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100">
-                   <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 max-h-96 overflow-y-auto p-2">
-                      {activeSubject.answerKey.map((ans, idx) => (
-                        <div key={idx} className="flex items-center justify-between bg-gray-50 px-3 py-2.5 rounded-xl border border-gray-100">
-                          <span className="text-[10px] font-black text-gray-400">ข้อ {idx + 1}</span>
-                          <span className={`text-lg font-black ${ans ? 'text-blue-600' : 'text-red-400 italic text-xs'}`}>
-                            {ans || 'ว่าง'}
-                          </span>
-                        </div>
-                      ))}
-                   </div>
-                </div>
-
-                <div className="flex flex-col gap-3">
-                  <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg">
-                    ถูกต้องแล้ว เริ่มตรวจงานนักเรียน
-                  </button>
-                  <button onClick={() => setIsKeyProcessed(false)} className="w-full text-gray-400 font-bold py-2 hover:text-gray-600">
-                    ถ่ายใหม่ (เฉลยไม่ตรง)
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
-        )}
-
-        {currentStep === AppStep.SCAN_STUDENTS && activeSubject && (
-          <section className="text-center space-y-10">
-             <div className="space-y-2">
-               <h2 className="text-2xl font-black">ตรวจงาน: {activeSubject.name}</h2>
-               <p className="text-xs text-gray-400">อิงตามใบเฉลยที่สแกนล่าสุด</p>
-             </div>
-             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="relative bg-blue-600 text-white rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-lg hover:bg-blue-700 transition active:scale-95 group">
-                   <input type="file" accept="image/*" capture="environment" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processStudentImages(e.target.files)} />
-                   <div className="bg-white/20 p-4 rounded-full mb-2">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                   </div>
-                   <span className="text-lg font-black">เปิดกล้องสแกน</span>
-                </div>
-                <div className="relative bg-white border-2 border-gray-100 rounded-[2.5rem] h-56 flex flex-col items-center justify-center cursor-pointer shadow-sm hover:border-blue-100 transition active:scale-95 group">
-                   <input type="file" multiple accept="image/*" className="absolute inset-0 opacity-0 z-10 cursor-pointer" onChange={(e) => e.target.files && processStudentImages(e.target.files)} />
-                   <div className="bg-gray-50 p-4 rounded-full mb-2">
-                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                   </div>
-                   <span className="text-lg font-black text-gray-500">เลือกรูปจากคลัง</span>
-                </div>
-             </div>
-             <button onClick={() => setCurrentStep(AppStep.VIEW_RESULTS)} className="text-blue-600 font-bold hover:underline">ดูประวัติการตรวจ</button>
-          </section>
-        )}
-
-        {currentStep === AppStep.VIEW_RESULTS && activeSubject && (
-          <section className="space-y-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-2xl font-black">{activeSubject.name}</h2>
-                <p className="text-gray-400 font-bold text-sm">ตรวจแล้ว {activeSubject.results.length} คน</p>
-              </div>
-              <button onClick={() => setCurrentStep(AppStep.SUBJECT_LIST)} className="bg-gray-100 px-4 py-2 rounded-xl font-black text-gray-600 transition hover:bg-gray-200">กลับ</button>
+            <div className="flex gap-2 sticky bottom-4">
+              <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-xl">ตรวจเพิ่ม</button>
+              <button onClick={() => window.print()} className="bg-white text-gray-400 px-6 py-4 rounded-2xl font-bold border border-gray-100 shadow-sm">พิมพ์</button>
             </div>
-            <div className="bg-white rounded-[2.5rem] shadow-xl border border-gray-50 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-gray-50 border-b">
-                    <tr className="text-[10px] font-black text-gray-400 uppercase">
-                      <th className="px-6 py-4">เลขที่</th>
-                      <th className="px-6 py-4">ชื่อ</th>
-                      <th className="px-6 py-4 text-center">คะแนน</th>
-                      <th className="px-6 py-4">สถานะ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {activeSubject.results.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-10 text-center text-gray-300 font-bold italic">ยังไม่ได้ตรวจงานใครเลย</td>
-                      </tr>
-                    ) : activeSubject.results.map(r => (
-                      <tr key={r.id} className="hover:bg-gray-50 transition">
-                        <td className="px-6 py-4 font-black text-gray-800">{r.studentNumber || '-'}</td>
-                        <td className="px-6 py-4 font-medium text-gray-500">{r.studentName || 'ไม่ระบุ'}</td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="font-black text-blue-600 text-lg">{r.totalScore}</span>
-                          <span className="text-gray-300 ml-1 font-bold text-xs">/{activeSubject.totalQuestions}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`px-3 py-1 rounded-full text-[10px] font-black ${r.hasError ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>
-                            {r.hasError ? 'ตรวจไม่ครบ' : 'สมบูรณ์'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg">ตรวจเพิ่ม</button>
-              <button onClick={() => window.print()} className="bg-white text-gray-500 px-6 py-4 rounded-2xl font-black border border-gray-100 shadow-sm">พิมพ์สรุป</button>
-            </div>
-          </section>
+          </div>
         )}
       </main>
 
-      <footer className="fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md p-4 border-t border-gray-100 flex justify-between items-center px-8 z-40">
-        <div className="flex flex-col">
-          <span className="text-[10px] font-black text-gray-400 uppercase">TODSUAB OMR AI</span>
-          <span className="text-[8px] text-gray-300 font-bold">BY SMART GRADER CORE</span>
-        </div>
-        <div className={`px-4 py-1.5 rounded-full text-[10px] font-black flex items-center gap-2 ${apiKeyInfo.found ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-           <span className={`w-1.5 h-1.5 rounded-full ${apiKeyInfo.found ? 'bg-green-500 shadow-sm' : 'bg-red-500 animate-pulse'}`}></span>
-           {apiKeyInfo.found ? 'AI พร้อมใช้งาน' : 'AI ยังไม่เชื่อมต่อ'}
-        </div>
-      </footer>
+      <div className="fixed bottom-0 inset-x-0 p-4 flex justify-center pointer-events-none">
+         <div className={`px-4 py-1.5 rounded-full text-[10px] font-bold shadow-lg pointer-events-auto ${apiKeyInfo.found ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
+            {apiKeyInfo.found ? 'AI พร้อมทำงาน' : 'AI ยังไม่เชื่อมต่อ'}
+         </div>
+      </div>
     </div>
   );
 };

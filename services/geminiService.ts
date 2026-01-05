@@ -26,7 +26,6 @@ const cleanJsonResponse = (text: string): string => {
 const mapToChoice = (val: any): Choice => {
   if (val === null || val === undefined) return null;
   const v = String(val).trim().toUpperCase();
-  // แมปตามตำแหน่งที่ AI ส่งมา หรือตัวอักษร
   if (v === 'ก' || v === 'A' || v === '1' || v === 'COL1') return 'ก';
   if (v === 'ข' || v === 'B' || v === '2' || v === 'COL2') return 'ข';
   if (v === 'ค' || v === 'C' || v === '3' || v === 'COL3') return 'ค';
@@ -49,38 +48,33 @@ export const analyzeAnswerSheet = async (
   try {
     const apiKey = getSafeApiKey();
     if (!apiKey || apiKey.length < 5) {
-      return { answers: [], error: "กรุณาเชื่อมต่อ API Key ก่อนใช้งาน", isAuthError: true };
+      return { answers: [], error: "กรุณาเชื่อมต่อ API Key ก่อน", isAuthError: true };
     }
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // ปรับ Instruction ให้เน้น "ตำแหน่งในตาราง" ตามที่คุณต้องการ
-    const systemInstruction = `You are an OMR Grid Reader. 
-The image is a grid of answers from question 1 to ${totalQuestions}.
-Layout rules:
-- Each row is a Question ID.
-- Each row has 4 columns representing choices: ก(1), ข(2), ค(3), ง(4).
-- Task: Identify which column is marked (tick, cross, or shaded) in each row.
-- If multiple marks in a row, use "multiple". If empty, use null.
-- For student sheets, also extract "studentNumber" and "studentName" from the top part.
-Return ONLY valid JSON.`;
+    // คำสั่งที่ชัดเจนที่สุด: มองเป็นตาราง 4 ช่อง ก-ง
+    const systemInstruction = `You are a simple OMR grid reader.
+Rules:
+1. Identify markings for questions 1 to ${totalQuestions}.
+2. Each question is a row with 4 horizontal columns: Column 1=ก, Column 2=ข, Column 3=ค, Column 4=ง.
+3. If a box is ticked, crossed, or shaded, mark that column.
+4. Return JSON format: {"questions": [{"id": 1, "marked": "ก"}]}.
+${isKey ? '' : '5. Also find student name/ID at the top and include in "studentNumber" and "studentName".'}`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: isKey 
-            ? `Scan Answer Key for ${totalQuestions} questions. Identify marks in 4 columns.` 
-            : `Scan Student Paper for ${totalQuestions} questions. Identify marks and student info.` 
-          }
+          { text: `Identify marks for 1-${totalQuestions} questions.` }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
         temperature: 0,
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 0 }, // ปิด Thinking เพื่อเลี่ยง Error
+        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -103,19 +97,16 @@ Return ONLY valid JSON.`;
       }
     });
 
-    const responseText = response.text;
-    if (!responseText) throw new Error("Empty Response");
+    const text = response.text;
+    if (!text) throw new Error("API No Response");
     
-    const data = JSON.parse(cleanJsonResponse(responseText));
+    const data = JSON.parse(cleanJsonResponse(text));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
     
-    // เติมข้อมูลลง Array ให้ตรงตามข้อ
-    if (data.questions && Array.isArray(data.questions)) {
+    if (data.questions) {
       data.questions.forEach((q: any) => {
         const idx = q.id - 1;
-        if (idx >= 0 && idx < totalQuestions) {
-          answers[idx] = mapToChoice(q.marked);
-        }
+        if (idx >= 0 && idx < totalQuestions) answers[idx] = mapToChoice(q.marked);
       });
     }
 
@@ -125,11 +116,9 @@ Return ONLY valid JSON.`;
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("OMR Logic Error:", err);
     return { 
       answers: [], 
-      error: "AI ประมวลผลภาพไม่สำเร็จ กรุณาลองใหม่ในที่สว่างหรือถ่ายให้เห็นตารางคำตอบชัดเจน", 
-      isAuthError: err.message?.includes("401") || err.message?.includes("API_KEY")
+      error: "AI เข้าถึงภาพไม่ได้ (Inference Error) กรุณาถ่ายภาพในที่สว่างและชัดเจนขึ้น หรือลองกดใหม่อีกครั้ง" 
     };
   }
 };
