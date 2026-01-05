@@ -26,10 +26,11 @@ const cleanJsonResponse = (text: string): string => {
 const mapToChoice = (val: any): Choice => {
   if (val === null || val === undefined) return null;
   const v = String(val).trim().toUpperCase();
-  if (v === 'ก' || v === 'A' || v === '1' || v === 'COL1') return 'ก';
-  if (v === 'ข' || v === 'B' || v === '2' || v === 'COL2') return 'ข';
-  if (v === 'ค' || v === 'C' || v === '3' || v === 'COL3') return 'ค';
-  if (v === 'ง' || v === 'D' || v === '4' || v === 'COL4') return 'ง';
+  // แมปตามตำแหน่งคอลัมน์ หรือตัวอักษร
+  if (v === '1' || v === 'ก' || v === 'A' || v === 'COL1') return 'ก';
+  if (v === '2' || v === 'ข' || v === 'B' || v === 'COL2') return 'ข';
+  if (v === '3' || v === 'ค' || v === 'C' || v === '3') return 'ค';
+  if (v === '4' || v === 'ง' || v === 'D' || v === '4') return 'ง';
   if (v === 'MULTIPLE' || v === 'M') return 'multiple';
   return null;
 };
@@ -53,21 +54,20 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // คำสั่งที่ชัดเจนที่สุด: มองเป็นตาราง 4 ช่อง ก-ง
-    const systemInstruction = `You are a simple OMR grid reader.
-Rules:
-1. Identify markings for questions 1 to ${totalQuestions}.
-2. Each question is a row with 4 horizontal columns: Column 1=ก, Column 2=ข, Column 3=ค, Column 4=ง.
-3. If a box is ticked, crossed, or shaded, mark that column.
-4. Return JSON format: {"questions": [{"id": 1, "marked": "ก"}]}.
-${isKey ? '' : '5. Also find student name/ID at the top and include in "studentNumber" and "studentName".'}`;
+    // Prompt ที่กระชับและเน้นโครงสร้างตาราง
+    const systemInstruction = `You are a specialized OMR scanner.
+Task: Scan a grid of ${totalQuestions} questions.
+Layout: Each row is a question. Each row has 4 horizontal columns (1=ก, 2=ข, 3=ค, 4=ง).
+Goal: For each row, identify which column index (1, 2, 3, or 4) has a mark.
+Output: Valid JSON only.
+Format: {"questions": [{"id": 1, "marked": "1"}]${!isKey ? ', "studentNumber": "...", "studentName": "..."' : ''}}`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: `Identify marks for 1-${totalQuestions} questions.` }
+          { text: `Detect markings for questions 1 to ${totalQuestions}.` }
         ]
       },
       config: {
@@ -98,12 +98,12 @@ ${isKey ? '' : '5. Also find student name/ID at the top and include in "studentN
     });
 
     const text = response.text;
-    if (!text) throw new Error("API No Response");
+    if (!text) throw new Error("Empty response");
     
     const data = JSON.parse(cleanJsonResponse(text));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
     
-    if (data.questions) {
+    if (data.questions && Array.isArray(data.questions)) {
       data.questions.forEach((q: any) => {
         const idx = q.id - 1;
         if (idx >= 0 && idx < totalQuestions) answers[idx] = mapToChoice(q.marked);
@@ -116,9 +116,10 @@ ${isKey ? '' : '5. Also find student name/ID at the top and include in "studentN
       studentName: data.studentName || ""
     };
   } catch (err: any) {
+    console.error("Gemini Error:", err);
     return { 
       answers: [], 
-      error: "AI เข้าถึงภาพไม่ได้ (Inference Error) กรุณาถ่ายภาพในที่สว่างและชัดเจนขึ้น หรือลองกดใหม่อีกครั้ง" 
+      error: "AI ขัดข้องชั่วคราว กรุณาตรวจสอบว่าภาพชัดเจนและไม่มีเงาบัง แล้วกดลองใหม่อีกครั้ง" 
     };
   }
 };
