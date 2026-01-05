@@ -18,7 +18,7 @@ const Navbar = () => (
         <span className="text-[10px] uppercase tracking-widest opacity-70 font-bold">Smart OMR AI Core</span>
       </div>
     </div>
-    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.4</div>
+    <div className="text-sm bg-blue-700/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/10 font-medium">v2.5 (Direct Link)</div>
   </nav>
 );
 
@@ -32,22 +32,29 @@ const App: React.FC = () => {
   const [apiKeyInfo, setApiKeyInfo] = useState<{ found: boolean; prefix: string; source: string }>({ 
     found: false, prefix: 'None', source: 'None' 
   });
+  const [manualKey, setManualKey] = useState(localStorage.getItem('manual_api_key') || '');
 
   const checkKeyStatus = async () => {
     let rawKey = "";
     let source = "Not Detected";
 
     try {
-      // 1. ตรวจสอบ process.env แบบปลอดภัย
+      // 1. ตรวจสอบจาก Environment
       const envKey = (typeof process !== 'undefined' && process.env?.API_KEY) ? process.env.API_KEY : "";
+      const windowKey = (window as any).API_KEY || "";
+      const storedKey = localStorage.getItem('manual_api_key') || "";
       
       if (envKey && envKey !== "undefined") {
         rawKey = envKey;
         source = "System Environment";
       } 
-      else if ((window as any).API_KEY) {
-        rawKey = (window as any).API_KEY;
-        source = "Direct Window Variable";
+      else if (windowKey) {
+        rawKey = windowKey;
+        source = "Window Global";
+      }
+      else if (storedKey) {
+        rawKey = storedKey;
+        source = "Manual Entry (Saved)";
       }
       
       // 2. ตรวจสอบผ่าน AI Studio (ถ้ามี)
@@ -67,31 +74,38 @@ const App: React.FC = () => {
 
     setApiKeyInfo({
       found: exists,
-      prefix: exists && keyClean !== "CONNECTED_VIA_PLATFORM" ? `${keyClean.substring(0, 10)}...` : (exists ? 'Connected' : 'None'),
+      prefix: exists && keyClean.length > 10 ? `${keyClean.substring(0, 10)}...` : (exists ? 'Connected' : 'None'),
       source
     });
   };
 
   useEffect(() => {
     checkKeyStatus();
-    // ตรวจสอบทุกๆ 5 วินาทีเผื่อมีการเปลี่ยนแปลงจากภายนอก
-    const timer = setInterval(checkKeyStatus, 5000);
+    const timer = setInterval(checkKeyStatus, 3000);
     return () => clearInterval(timer);
   }, []);
+
+  const saveManualKey = () => {
+    if (manualKey.trim()) {
+      localStorage.setItem('manual_api_key', manualKey.trim());
+      checkKeyStatus();
+      setErrorMessage(null);
+      alert("บันทึกรหัส API Key แล้ว ระบบพร้อมทำงาน");
+    }
+  };
 
   const handleOpenKeySelector = async () => {
     if ((window as any).aistudio?.openSelectKey) {
       try {
         await (window as any).aistudio.openSelectKey();
         setErrorMessage(null);
-        // กฎ Race Condition: ให้ถือว่าสำเร็จทันที
-        setApiKeyInfo(prev => ({ ...prev, found: true, source: 'User Action' }));
+        setApiKeyInfo(prev => ({ ...prev, found: true, source: 'Platform Selector' }));
         await checkKeyStatus();
       } catch (e) {
         setErrorMessage("ไม่สามารถเปิดเครื่องมือเลือก Key ได้");
       }
     } else {
-      setErrorMessage("ระบบไม่พบเครื่องมือจัดการ Key อัตโนมัติ โปรดตั้งค่าใน Vercel Settings");
+      setErrorMessage("ระบบไม่พบเครื่องมือจัดการ Key อัตโนมัติ กรุณากรอกรหัสด้วยตนเองด้านล่าง");
     }
   };
 
@@ -150,7 +164,6 @@ const App: React.FC = () => {
       const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, true);
       if (data.error) {
         setErrorMessage(data.error);
-        if (data.isAuthError) handleOpenKeySelector(); // ถ้าเป็น Auth Error ให้เปิดหน้าเลือก Key ใหม่
         return;
       }
       const updated = { ...activeSubject, answerKey: data.answers };
@@ -177,7 +190,6 @@ const App: React.FC = () => {
         const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, false);
         if (data.error) {
           setErrorMessage(`แผ่นที่ ${i+1}: ${data.error}`);
-          if (data.isAuthError) { handleOpenKeySelector(); break; }
           continue;
         }
         const answers: QuestionResult[] = data.answers.map((ans, idx) => ({
@@ -215,30 +227,54 @@ const App: React.FC = () => {
       <Navbar />
 
       <main className="max-w-4xl mx-auto p-4 md:p-8">
-        {/* API KEY SETUP UI - แสดงเฉพาะเมื่อต้องการใช้งานจริงๆ */}
+        {/* KEY SETUP BLOCK */}
         {!apiKeyInfo.found && currentStep !== AppStep.SUBJECT_LIST && (
-          <div className="mb-8 bg-white border-2 border-amber-100 rounded-[2rem] p-8 shadow-sm animate-pulse">
+          <div className="mb-8 bg-white border-2 border-amber-100 rounded-[2rem] p-8 shadow-sm">
             <div className="flex items-center gap-4 mb-4 text-amber-600">
               <div className="bg-amber-50 p-3 rounded-2xl">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
               </div>
-              <h2 className="text-2xl font-black">AI กำลังรอการเชื่อมต่อ</h2>
+              <h2 className="text-2xl font-black">กรุณาเชื่อมต่อ API Key</h2>
             </div>
             
-            <p className="text-gray-600 mb-6 font-medium">
-              คุณต้องเชื่อมต่อ API Key เพื่อใช้ความสามารถในการตรวจข้อสอบด้วย AI:
-            </p>
+            <div className="space-y-6">
+              <div>
+                <p className="text-gray-600 mb-3 text-sm font-bold">วิธีที่ 1: กรอกรหัสด้วยตนเอง (แนะนำ)</p>
+                <div className="flex gap-2">
+                  <input 
+                    type="password"
+                    placeholder="วางรหัส AIza... ที่นี่"
+                    value={manualKey}
+                    onChange={(e) => setManualKey(e.target.value)}
+                    className="flex-1 px-4 py-3 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs"
+                  />
+                  <button 
+                    onClick={saveManualKey}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black shadow-md hover:bg-blue-700 transition"
+                  >
+                    บันทึก
+                  </button>
+                </div>
+              </div>
 
-            <button 
-              onClick={handleOpenKeySelector}
-              className="w-full bg-blue-600 text-white px-8 py-5 rounded-2xl font-black shadow-lg hover:bg-blue-700 transition flex items-center justify-center gap-3"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/></svg>
-              กดที่นี่เพื่อเชื่อมต่อ API Key
-            </button>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-gray-100"></span></div>
+                <div className="relative flex justify-center text-[10px] uppercase font-black text-gray-300"><span className="bg-white px-2">หรือ</span></div>
+              </div>
+
+              <div>
+                <p className="text-gray-600 mb-3 text-sm font-bold">วิธีที่ 2: ใช้เครื่องมือเลือกอัตโนมัติ</p>
+                <button 
+                  onClick={handleOpenKeySelector}
+                  className="w-full border-2 border-blue-600 text-blue-600 py-4 rounded-xl font-black hover:bg-blue-50 transition"
+                >
+                  เลือก API Key จากบัญชี Google
+                </button>
+              </div>
+            </div>
             
-            <div className="mt-4 text-[10px] text-center text-gray-400 font-mono">
-              Detection: {apiKeyInfo.source}
+            <div className="mt-6 text-[10px] text-center text-gray-300 font-mono">
+              Current Source: {apiKeyInfo.source}
             </div>
           </div>
         )}
@@ -246,17 +282,14 @@ const App: React.FC = () => {
         {errorMessage && (
           <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-xl flex items-center justify-between shadow-sm">
             <p className="text-red-700 text-sm font-bold">{errorMessage}</p>
-            <button onClick={() => setErrorMessage(null)} className="text-red-400 font-bold hover:text-red-600">ปิด</button>
+            <button onClick={() => setErrorMessage(null)} className="text-red-400 font-bold">ปิด</button>
           </div>
         )}
 
         {isLoading && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center text-white p-6 text-center">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center text-white">
             <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-400 mb-4"></div>
-            <p className="text-xl font-bold">AI กำลังวิเคราะห์ข้อมูล...</p>
-            {processingProgress.total > 1 && (
-              <p className="mt-2 text-blue-200">แผ่นที่ {processingProgress.current} จากทั้งหมด {processingProgress.total} แผ่น</p>
-            )}
+            <p className="text-xl font-bold">AI กำลังทำงาน...</p>
           </div>
         )}
 
@@ -265,7 +298,7 @@ const App: React.FC = () => {
           <section className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-black text-gray-800">รายวิชา</h2>
-              <button onClick={() => setCurrentStep(AppStep.SETUP_SUBJECT)} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg transition hover:scale-105 active:scale-95">+ สร้างวิชาใหม่</button>
+              <button onClick={() => setCurrentStep(AppStep.SETUP_SUBJECT)} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg transition hover:scale-105">+ สร้างวิชาใหม่</button>
             </div>
             {subjects.length === 0 ? (
               <div className="bg-white border-2 border-dashed border-gray-200 rounded-[2.5rem] p-24 text-center text-gray-400 font-medium">
@@ -285,8 +318,8 @@ const App: React.FC = () => {
                       </button>
                     </div>
                     <div className="flex gap-3 mt-auto">
-                      <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.VIEW_RESULTS); }} className="flex-1 bg-gray-50 py-3 rounded-xl font-bold text-gray-600 hover:bg-gray-100 transition">ดูผลคะแนน</button>
-                      <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.SCAN_STUDENTS); }} className="flex-1 bg-blue-600 py-3 rounded-xl font-bold text-white shadow-md hover:bg-blue-700 transition">ตรวจข้อสอบ</button>
+                      <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.VIEW_RESULTS); }} className="flex-1 bg-gray-50 py-3 rounded-xl font-bold text-gray-600 hover:bg-gray-100 transition">ผลคะแนน</button>
+                      <button onClick={() => { setActiveSubject(s); setCurrentStep(AppStep.SCAN_STUDENTS); }} className="flex-1 bg-blue-600 py-3 rounded-xl font-bold text-white shadow-md hover:bg-blue-700 transition">ตรวจ</button>
                     </div>
                   </div>
                 ))}
@@ -320,8 +353,8 @@ const App: React.FC = () => {
         {currentStep === AppStep.CALIBRATE_KEY && activeSubject && (
           <section className="space-y-8 text-center">
             <div className="space-y-2">
-              <h2 className="text-3xl font-black text-gray-800">ขั้นตอนที่ 1: อัปโหลดเฉลย</h2>
-              <p className="text-gray-400 font-medium">ใช้กล้องถ่ายภาพกระดาษคำตอบที่ "ฝนเฉลย" ไว้</p>
+              <h2 className="text-3xl font-black text-gray-800">อัปโหลดเฉลย</h2>
+              <p className="text-gray-400 font-medium">ถ่ายภาพกระดาษคำตอบที่ "ฝนเฉลย" ไว้</p>
             </div>
             
             <div className="relative group overflow-hidden rounded-[3rem] h-64 shadow-xl bg-white border-4 border-dashed border-blue-100 flex flex-col items-center justify-center cursor-pointer hover:border-blue-300 transition-all">
@@ -330,18 +363,17 @@ const App: React.FC = () => {
                 <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               </div>
               <div className="text-blue-600 font-black text-lg">ถ่ายภาพแผ่นเฉลย</div>
-              <p className="text-gray-300 text-xs mt-2">หรือคลิกเพื่อเลือกไฟล์รูปภาพ</p>
             </div>
             
-            <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="text-gray-400 font-bold hover:text-blue-600 transition">หรือข้ามไปฝนเฉลยด้วยตัวเองภายหลัง</button>
+            <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="text-gray-400 font-bold hover:text-blue-600 transition">ข้ามไปตรวจนักเรียนเลย</button>
           </section>
         )}
 
         {currentStep === AppStep.SCAN_STUDENTS && activeSubject && (
           <section className="space-y-10 text-center">
              <div className="space-y-2">
-               <h2 className="text-2xl font-black text-gray-800">ขั้นตอนที่ 2: ตรวจคำตอบ</h2>
-               <p className="text-gray-400 font-medium">วิชา: {activeSubject.name} ({activeSubject.totalQuestions} ข้อ)</p>
+               <h2 className="text-2xl font-black text-gray-800">ตรวจแผ่นคำตอบ</h2>
+               <p className="text-gray-400 font-medium">วิชา: {activeSubject.name}</p>
              </div>
 
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -357,10 +389,10 @@ const App: React.FC = () => {
                    <div className="bg-gray-50 p-4 rounded-full mb-3 group-hover:scale-110 transition">
                     <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                    </div>
-                   <span className="text-xl font-black text-gray-600">อัปโหลดจากคลังภาพ</span>
+                   <span className="text-xl font-black text-gray-600">อัปโหลดจากไฟล์</span>
                 </div>
              </div>
-             <button onClick={() => setCurrentStep(AppStep.VIEW_RESULTS)} className="text-blue-600 font-bold hover:underline">ดูสรุปคะแนน {activeSubject.results.length} คน</button>
+             <button onClick={() => setCurrentStep(AppStep.VIEW_RESULTS)} className="text-blue-600 font-bold hover:underline">ดูสรุปคะแนน ({activeSubject.results.length} คน)</button>
           </section>
         )}
 
@@ -369,7 +401,7 @@ const App: React.FC = () => {
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-3xl font-black text-gray-800">{activeSubject.name}</h2>
-                <p className="text-gray-400 font-medium">พบข้อมูลนักเรียน {activeSubject.results.length} คน</p>
+                <p className="text-gray-400 font-medium">พบนักเรียน {activeSubject.results.length} คน</p>
               </div>
               <button onClick={() => setCurrentStep(AppStep.SUBJECT_LIST)} className="bg-gray-100 text-gray-600 px-6 py-2 rounded-xl font-black hover:bg-gray-200 transition">กลับ</button>
             </div>
@@ -399,7 +431,7 @@ const App: React.FC = () => {
                           </td>
                           <td className="px-6 py-4">
                             {r.hasError ? (
-                              <span className="bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-[10px] font-black uppercase">⚠️ ไม่สมบูรณ์</span>
+                              <span className="bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter">⚠️ ไม่สมบูรณ์</span>
                             ) : (
                               <span className="bg-green-50 text-green-600 px-3 py-1 rounded-full text-[10px] font-black uppercase">✅ ตรวจแล้ว</span>
                             )}
@@ -413,8 +445,8 @@ const App: React.FC = () => {
             )}
             
             <div className="flex gap-4">
-              <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg hover:bg-blue-700 transition">เพิ่มแผ่นคำตอบ</button>
-              <button onClick={() => window.print()} className="bg-white text-gray-600 px-6 py-4 rounded-2xl font-black border border-gray-100 shadow-sm hover:bg-gray-50 transition">พิมพ์ผลลัพธ์</button>
+              <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg hover:bg-blue-700 transition">ตรวจเพิ่ม</button>
+              <button onClick={() => window.print()} className="bg-white text-gray-600 px-6 py-4 rounded-2xl font-black border border-gray-100 shadow-sm">พิมพ์</button>
             </div>
           </section>
         )}
@@ -426,15 +458,21 @@ const App: React.FC = () => {
           <div className="bg-blue-600 text-white p-1 rounded-md">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
           </div>
-          <span className="text-[10px] font-black text-gray-800 uppercase tracking-widest">TODSUAB SMART OMR</span>
+          <span className="text-[10px] font-black text-gray-800 uppercase tracking-widest">TODSUAB OMR</span>
         </div>
         
         <div 
-          onClick={handleOpenKeySelector}
-          className={`px-4 py-1.5 rounded-full text-[10px] font-black flex items-center gap-2 cursor-pointer transition-all active:scale-95 ${apiKeyInfo.found ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600 animate-pulse'}`}
+          onClick={() => {
+            if (!apiKeyInfo.found) setCurrentStep(AppStep.SETUP_SUBJECT);
+            else if (confirm("ต้องการลบ API Key ที่บันทึกไว้หรือไม่?")) {
+              localStorage.removeItem('manual_api_key');
+              checkKeyStatus();
+            }
+          }}
+          className={`px-4 py-1.5 rounded-full text-[10px] font-black flex items-center gap-2 cursor-pointer transition-all active:scale-95 ${apiKeyInfo.found ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}
         >
            <span className={`w-1.5 h-1.5 rounded-full ${apiKeyInfo.found ? 'bg-green-500' : 'bg-red-500'}`}></span>
-           {apiKeyInfo.found ? `AI READY (${apiKeyInfo.prefix})` : 'API NOT CONNECTED (TAP HERE)'}
+           {apiKeyInfo.found ? `AI READY (${apiKeyInfo.prefix})` : 'AI OFFLINE (TAP TO SETUP)'}
         </div>
       </footer>
     </div>

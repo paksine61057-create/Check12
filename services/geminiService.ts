@@ -6,12 +6,18 @@ import { Choice } from "../types";
 const getSafeApiKey = (): string => {
   let key = "";
   try {
-    // พยายามดึงจากช่องทางต่างๆ ตามลำดับความสำคัญ
-    key = (typeof process !== 'undefined' && process.env?.API_KEY) 
-          ? process.env.API_KEY 
-          : (window as any).API_KEY || "";
+    // 1. ลองดึงจาก Environment Variables (Vercel)
+    const envKey = (typeof process !== 'undefined' && process.env?.API_KEY) ? process.env.API_KEY : "";
+    
+    // 2. ลองดึงจาก Window Global
+    const windowKey = (window as any).API_KEY || "";
+
+    // 3. ลองดึงจากที่ผู้ใช้กรอกเองผ่านหน้าเว็บ (Manual Input)
+    const manualKey = localStorage.getItem('manual_api_key') || "";
+
+    key = envKey || windowKey || manualKey || "";
   } catch (e) {
-    key = (window as any).API_KEY || "";
+    key = localStorage.getItem('manual_api_key') || (window as any).API_KEY || "";
   }
   
   // ทำความสะอาดค่าที่ได้ (ลบช่องว่าง, ลบเครื่องหมายคำพูด)
@@ -46,15 +52,15 @@ export const analyzeAnswerSheet = async (
   try {
     const apiKey = getSafeApiKey();
 
-    if (!apiKey || apiKey === "undefined" || apiKey === "null") {
+    if (!apiKey || apiKey === "undefined" || apiKey === "null" || apiKey.length < 5) {
       return { 
         answers: [], 
-        error: "ไม่พบรหัส API_KEY ในระบบ กรุณากดปุ่ม 'เชื่อมต่อ API Key' ที่ด้านล่าง", 
+        error: "ไม่พบรหัส API_KEY ในระบบ กรุณากรอกรหัส หรือกดปุ่ม 'เชื่อมต่อ API Key'", 
         isAuthError: true 
       };
     }
 
-    // สร้าง Instance ใหม่ทุกครั้งตามคำแนะนำเพื่อให้ได้ค่า Key ล่าสุดจาก Dialog
+    // สร้าง Instance ใหม่ทุกครั้งตามคำแนะนำเพื่อให้ได้ค่า Key ล่าสุด
     const ai = new GoogleGenAI({ apiKey });
     
     const systemInstruction = isKey 
@@ -125,9 +131,8 @@ export const analyzeAnswerSheet = async (
     let isAuthError = false;
 
     const errMsg = err.message?.toLowerCase() || "";
-    // แก้ปัญหา Requested entity was not found โดยการบังคับให้ Re-auth
     if (errMsg.includes("not found") || errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid")) {
-      friendlyError = "API Key มีปัญหาหรือหมดอายุ กรุณากดเชื่อมต่อใหม่อีกครั้ง";
+      friendlyError = "API Key ไม่ถูกต้อง หรือไม่มีสิทธิ์เข้าถึง กรุณาตรวจสอบรหัสใหม่อีกครั้ง";
       isAuthError = true;
     }
 
