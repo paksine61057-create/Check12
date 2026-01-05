@@ -2,6 +2,22 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Choice } from "../types";
 
+// Helper สำหรับดึง API Key อย่างปลอดภัยในทุก Environment
+const getSafeApiKey = (): string => {
+  let key = "";
+  try {
+    // พยายามดึงจากช่องทางต่างๆ ตามลำดับความสำคัญ
+    key = (typeof process !== 'undefined' && process.env?.API_KEY) 
+          ? process.env.API_KEY 
+          : (window as any).API_KEY || "";
+  } catch (e) {
+    key = (window as any).API_KEY || "";
+  }
+  
+  // ทำความสะอาดค่าที่ได้ (ลบช่องว่าง, ลบเครื่องหมายคำพูด)
+  return key.toString().trim().replace(/^['"]|['"]$/g, '');
+};
+
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
   try {
@@ -28,27 +44,18 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // ดึง API Key อย่างปลอดภัยที่สุด
-    let apiKey = "";
-    try {
-      apiKey = (process.env.API_KEY || (window as any).API_KEY || "").toString().trim();
-    } catch (e) {
-      apiKey = ((window as any).API_KEY || "").toString().trim();
-    }
-
-    // ล้างเครื่องหมายคำพูดที่อาจแถมมา
-    apiKey = apiKey.replace(/^['"]|['"]$/g, ''); 
+    const apiKey = getSafeApiKey();
 
     if (!apiKey || apiKey === "undefined" || apiKey === "null") {
       return { 
         answers: [], 
-        error: "ไม่พบรหัส API_KEY กรุณากดปุ่ม 'เชื่อมต่อ API Key' หรือตรวจสอบการตั้งค่าใน Vercel", 
+        error: "ไม่พบรหัส API_KEY ในระบบ กรุณากดปุ่ม 'เชื่อมต่อ API Key' ที่ด้านล่าง", 
         isAuthError: true 
       };
     }
 
-    // สร้าง Instance ใหม่ทุกครั้งที่เรียกเพื่อใช้ Key ล่าสุด
-    const ai = new GoogleGenAI({ apiKey: apiKey });
+    // สร้าง Instance ใหม่ทุกครั้งตามคำแนะนำเพื่อให้ได้ค่า Key ล่าสุดจาก Dialog
+    const ai = new GoogleGenAI({ apiKey });
     
     const systemInstruction = isKey 
       ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" และส่งคืนคำตอบในรูปแบบ JSON { "questions": [...] } โดยใช้ตัวเลือก ก, ข, ค, ง`
@@ -118,9 +125,9 @@ export const analyzeAnswerSheet = async (
     let isAuthError = false;
 
     const errMsg = err.message?.toLowerCase() || "";
-    // หากเกิด Error "Entity not found" ให้รีเซ็ตสถานะเพื่อให้ผู้ใช้เลือก Key ใหม่
+    // แก้ปัญหา Requested entity was not found โดยการบังคับให้ Re-auth
     if (errMsg.includes("not found") || errMsg.includes("401") || errMsg.includes("api_key") || errMsg.includes("invalid")) {
-      friendlyError = "API Key ไม่ถูกต้อง หรือโครงการไม่ได้เปิดใช้งาน API นี้";
+      friendlyError = "API Key มีปัญหาหรือหมดอายุ กรุณากดเชื่อมต่อใหม่อีกครั้ง";
       isAuthError = true;
     }
 
