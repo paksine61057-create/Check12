@@ -42,26 +42,28 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // ปรับปรุง Instruction ให้ AI เข้าใจลักษณะ "รอยฝน" มากขึ้น
+    // ปรับปรุง Instruction ให้ตรวจจับร่องรอยการเขียนทุกรูปแบบ (กากบาท, ขีดถูก, ระบาย)
     const systemInstruction = isKey 
-      ? `คุณคือผู้เชี่ยวชาญด้าน OMR หน้าที่ของคุณคือวิเคราะห์ "กระดาษเฉลย" (Answer Key) ข้อ 1-${totalQuestions} มองหารอยฝนหรือสัญลักษณ์ที่ระบุคำตอบที่ถูกต้องอย่างละเอียด คืนค่าเป็น JSON เท่านั้น`
-      : `คุณคือระบบตรวจข้อสอบอัตโนมัติ อ่านรอยฝนคำตอบนักเรียนข้อ 1-${totalQuestions} พร้อมอ่านเลขที่และชื่อ คืนค่าเป็น JSON เท่านั้น`;
+      ? `คุณคือผู้เชี่ยวชาญ OMR วิเคราะห์ "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรหัสคำตอบจากการ กากบาท (X), ขีดถูก, หรือการระบายในช่องวงกลม หากมีการขีดเขียนในช่องใดให้ถือเป็นเฉลยข้อนั้น คืน JSON: { "questions": [{"id":1,"marked":"ก"}] }`
+      : `คุณคือระบบตรวจข้อสอบอัจฉริยะ ตรวจร่องรอยการเลือกคำตอบนักเรียนข้อ 1-${totalQuestions} รองรับทั้งการกากบาท (X), ขีดถูก (Check), หรือการระบาย คืน JSON: { "studentNumber":"...", "studentName":"...", "questions":[] }`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: isKey ? `Extract the correct answers for questions 1 to ${totalQuestions}. Look for filled circles.` : `Identify student info and answers 1 to ${totalQuestions}.` }
+          { text: isKey 
+            ? `Identify all marked answers (circles, crosses, or checks) for keys 1 to ${totalQuestions}.` 
+            : `Detect student identity and all marks (crosses, checks, or filled bubbles) for answers 1 to ${totalQuestions}.` 
+          }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
         temperature: 0,
         responseMimeType: "application/json",
-        // สำหรับใบเฉลย (isKey) ให้ Thinking Budget เล็กน้อยเพื่อความแม่นยำ 
-        // สำหรับใบนักเรียนให้เป็น 0 เพื่อความเร็วในการตรวจจำนวนมาก
-        thinkingConfig: { thinkingBudget: isKey ? 512 : 0 }, 
+        // ให้ Thinking Budget เล็กน้อยเพื่อให้ AI วิเคราะห์ "เจตนา" ของรอยขีดเขียนได้ดีขึ้น
+        thinkingConfig: { thinkingBudget: 512 }, 
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -94,7 +96,6 @@ export const analyzeAnswerSheet = async (
         const idx = q.id - 1;
         if (idx >= 0 && idx < totalQuestions) {
           const val = q.marked;
-          // แปลงค่าจาก AI ให้เป็นรูปแบบที่ระบบรองรับ (ก ข ค ง)
           if (['ก', 'ข', 'ค', 'ง', 'multiple'].includes(val)) {
             answers[idx] = val as Choice;
           } else {
@@ -111,6 +112,6 @@ export const analyzeAnswerSheet = async (
     };
   } catch (err: any) {
     console.error("OMR Service Error:", err);
-    return { answers: [], error: "AI ไม่สามารถวิเคราะห์ภาพได้ กรุณาตรวจสอบความชัดเจนของภาพ", isAuthError: err.message?.includes("401") };
+    return { answers: [], error: "ไม่สามารถวิเคราะห์ร่องรอยคำตอบได้ กรุณาลองถ่ายภาพให้ชัดเจนขึ้น", isAuthError: err.message?.includes("401") };
   }
 };
