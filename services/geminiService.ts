@@ -53,27 +53,27 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // ปรับปรุง System Instruction ให้เด็ดขาดและลดภาระการคิดที่ซับซ้อนเกินไป (Reasoning) เพื่อความเสถียร
     const systemInstruction = isKey 
-      ? `คุณคือ OMR Scanner หน้าที่: อ่าน "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรอยที่ชัดเจนที่สุด คืนค่า JSON: { "questions": [{"id":1,"marked":"ก"}] } เท่านั้น ห้ามเขียนคำบรรยาย`
-      : `คุณคือ OMR Scanner หน้าที่: อ่าน "กระดาษคำตอบ" ข้อ 1-${totalQuestions} ตรวจจับรอย กากบาท, ขีดถูก หรือระบาย (รวมถึงรอยที่แก้ไขแล้ว) อ่านเลขที่และชื่อนักเรียน คืนค่า JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] } ต้องมีข้อมูลครบทุกข้อจาก 1-${totalQuestions}`;
+      ? `คุณคือ OMR Scanner หน้าที่: อ่าน "ใบเฉลย" ข้อ 1-${totalQuestions} ตรวจจับรอยที่ชัดเจน คืนค่า JSON: { "questions": [{"id":1,"marked":"ก"}] }`
+      : `คุณคือ OMR Scanner หน้าที่: อ่าน "กระดาษคำตอบ" ข้อ 1-${totalQuestions} ตรวจจับรอย กากบาท, ขีดถูก หรือระบาย อ่านเลขที่และชื่อนักเรียน คืนค่า JSON: { "studentNumber":"...", "studentName":"...", "questions": [{"id":1,"marked":"ก"}] }`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3-pro-preview", // อัปเกรดเป็น Pro เพื่อความเสถียรในการวิเคราะห์ภาพ
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
           { text: isKey 
             ? `Identify markings for keys 1 to ${totalQuestions}.` 
-            : `Scan student sheet. Analyze marks for questions 1 to ${totalQuestions}. Be precise with faint marks.` 
+            : `Extract student ID and markings for questions 1 to ${totalQuestions}.` 
           }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.1, // เพิ่มความยืดหยุ่นเล็กน้อยเพื่อให้ Vision ทำงานได้เสถียรขึ้นในภาพเดิม
+        temperature: 0, // ปรับเป็น 0 เพื่อความแม่นยำสูงสุด
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 1024 }, // ปรับลดเพื่อลดโอกาสเกิด Timeout หรือ Reasoning Error
+        // ตั้งค่า thinkingBudget เป็น 0 เพื่อแก้ปัญหา Reasoning Error ที่มักเกิดกับงาน Vision
+        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -98,7 +98,7 @@ export const analyzeAnswerSheet = async (
 
     const responseText = response.text;
     if (!responseText) {
-      throw new Error("AI returned no content");
+      throw new Error("Empty Response");
     }
     
     const data = JSON.parse(cleanJsonResponse(responseText));
@@ -119,11 +119,10 @@ export const analyzeAnswerSheet = async (
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("OMR Detailed Error:", err);
-    // หากเกิด Error ซ้ำเดิม ให้แจ้งเตือนโดยแนะนำวิธีแก้ที่ปฏิบัติได้จริง
+    console.error("OMR Service Error:", err);
     return { 
       answers: [], 
-      error: "การเชื่อมต่อ AI ติดขัดชั่วคราว หรือภาพมีความสว่างไม่พอ (AI Inference Error) กรุณากดลองอีกครั้งหรือปรับมุมกล้อง", 
+      error: "ไม่สามารถประมวลผลได้ชั่วคราว (AI Connection Error) กรุณากดปุ่มตรวจใหม่อีกครั้ง", 
       isAuthError: err.message?.includes("401") 
     };
   }
