@@ -17,7 +17,6 @@ const getSafeApiKey = (): string => {
 
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
-  // ค้นหา JSON block โดยละเอียดที่สุด
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     return jsonMatch[0];
@@ -29,7 +28,6 @@ const mapToChoice = (val: any): Choice => {
   if (val === null || val === undefined || val === "") return null;
   const v = String(val).trim().toUpperCase();
   
-  // รองรับการ Map ทุกรูปแบบที่ AI อาจจะส่งมา (ตัวเลข 1-4, ก-ง, A-D)
   if (['1', 'ก', 'A', 'COL1', 'COLUMN1', 'ONE'].includes(v)) return 'ก';
   if (['2', 'ข', 'B', 'COL2', 'COLUMN2', 'TWO'].includes(v)) return 'ข';
   if (['3', 'ค', 'C', 'COL3', 'COLUMN3', 'THREE'].includes(v)) return 'ค';
@@ -58,31 +56,26 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // แยก Instruction สำหรับเฉลย และสำหรับนักเรียน เพื่อความแม่นยำสูงสุด
     const roleInstruction = isKey 
-      ? "You are a specialized Answer Key Scanner." 
-      : "You are a specialized Student Answer Sheet Scanner.";
-
-    const taskDetail = isKey
-      ? `Scan the grid for exactly ${totalQuestions} questions. Focus only on the most clearly marked bubble in each row.`
-      : `Scan the grid for ${totalQuestions} questions. Identify the darkest marked bubble in each row. Also, look for any handwritten student ID or name in the header section.`;
+      ? "You are a professional Answer Key OMR Scanner." 
+      : "You are a professional Student Answer Sheet OMR Scanner.";
 
     const systemInstruction = `${roleInstruction}
-Goal: Extract markings from an OMR grid.
-${taskDetail}
-Grid Layout: Horizontal rows (Question IDs) and 4 columns (1=ก, 2=ข, 3=ค, 4=ง).
+Your task is to extract marked answers from a 4-choice OMR grid (ก, ข, ค, ง).
+CRITICAL: Do not complain about image quality, shadows, or blur. Use your best judgment to identify the darkest mark in each row.
 
-Rules:
-1. Return exactly ${totalQuestions} question objects in an array.
-2. For each question, if a bubble is shaded, return its index "1", "2", "3", or "4".
-3. If no mark is found, return null.
-4. If multiple bubbles are shaded in one row, return "multiple".
-5. Output MUST be valid JSON only.
+Instructions:
+1. Identify ${totalQuestions} questions.
+2. For each row, return the index "1" (ก), "2" (ข), "3" (ค), or "4" (ง) that is marked.
+3. If a row is clearly empty, return null.
+4. If multiple marks exist, return "multiple".
+5. Extract handwritten student ID and Name if present.
 
-Format:
+Response must be strictly valid JSON:
 {
-  "questions": [{"id": 1, "marked": "1"}, {"id": 2, "marked": null}],
-  ${!isKey ? '"studentNumber": "string if found", "studentName": "string if found"' : ''}
+  "questions": [{"id": 1, "marked": "1"}],
+  "studentNumber": "string",
+  "studentName": "string"
 }`;
 
     const response = await ai.models.generateContent({
@@ -90,14 +83,13 @@ Format:
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: `Grading request: Extract data for questions 1 to ${totalQuestions}.` }
+          { text: `Extract answers for 1 to ${totalQuestions}. Do not provide any feedback about image quality, just the data.` }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
         temperature: 0,
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -120,20 +112,14 @@ Format:
       }
     });
 
-    if (!response || !response.text) {
-      throw new Error("No response from Gemini");
-    }
+    if (!response || !response.text) throw new Error("No response");
     
-    const text = response.text;
-    const cleanData = cleanJsonResponse(text);
-    const data = JSON.parse(cleanData);
-    
+    const data = JSON.parse(cleanJsonResponse(response.text));
     const answers: Choice[] = new Array(totalQuestions).fill(null);
     
     if (data.questions && Array.isArray(data.questions)) {
       data.questions.forEach((q: any) => {
-        const idVal = parseInt(String(q.id));
-        const idx = idVal - 1;
+        const idx = parseInt(String(q.id)) - 1;
         if (idx >= 0 && idx < totalQuestions) {
           answers[idx] = mapToChoice(q.marked);
         }
@@ -146,15 +132,10 @@ Format:
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("OMR Scanning Exception:", err);
-    // แจ้งเตือนที่มีข้อมูลเป็นประโยชน์มากขึ้นแก่ครู
-    const errorMsg = isKey 
-      ? "AI ไม่สามารถอ่านใบเฉลยได้ กรุณาวางใบเฉลยให้ตรงและไม่มีแสงสะท้อน" 
-      : "AI ไม่สามารถอ่านใบงานนักเรียนแผ่นนี้ได้ อาจเกิดจากภาพสั่นหรือมีเงาพาดทับกระดาษ กรุณาถ่ายใหม่อีกครั้ง";
-    
+    console.error("Analysis Error:", err);
     return { 
       answers: [], 
-      error: errorMsg
+      error: "AI ประมวลผลภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง หรือขยับกล้องให้ขนานกับกระดาษมากขึ้น" 
     };
   }
 };
