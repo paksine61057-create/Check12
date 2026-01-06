@@ -180,13 +180,13 @@ const App: React.FC = () => {
         {currentStep === AppStep.CALIBRATE_KEY && activeSubject && (
           <div className="space-y-4">
             <div className="bg-white p-10 rounded-[3rem] border-4 border-dashed border-slate-100 text-center space-y-6">
-              <h2 className="font-black text-xl">{isKeyProcessed ? 'ยืนยันเฉลย' : 'สแกนใบเฉลย'}</h2>
+              <h2 className="font-black text-xl">{isKeyProcessed ? 'ยืนยันเฉลย' : 'เลือกใบเฉลย'}</h2>
               {!isKeyProcessed ? (
                 <div className="space-y-4">
-                  <p className="text-sm text-slate-400">ถ่ายรูปใบเฉลยที่ฝนคำตอบไว้แล้ว</p>
+                  <p className="text-sm text-slate-400">ถ่ายรูปหรือเลือกไฟล์ใบเฉลยที่ฝนคำตอบไว้แล้ว</p>
                   <label className="block w-full bg-blue-600 text-white py-4 rounded-2xl font-black cursor-pointer shadow-lg text-center">
-                    📸 ถ่ายภาพเฉลย
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => e.target.files && processKeyImage(e.target.files[0])} />
+                    📸 เลือก/ถ่ายภาพเฉลย
+                    <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files && processKeyImage(e.target.files[0])} />
                   </label>
                 </div>
               ) : (
@@ -209,9 +209,9 @@ const App: React.FC = () => {
         {currentStep === AppStep.SCAN_STUDENTS && activeSubject && (
           <div className="bg-white p-10 rounded-[3rem] text-center space-y-6 shadow-xl">
             <h2 className="font-black text-xl">ตรวจข้อสอบนักเรียน</h2>
-            <p className="text-sm text-slate-400">เลือกภาพถ่ายใบงานนักเรียน (เลือกได้หลายไฟล์)</p>
+            <p className="text-sm text-slate-400">ถ่ายรูปหรือเลือกภาพถ่ายใบงานนักเรียน (เลือกได้หลายไฟล์)</p>
             <label className="block w-full bg-blue-600 text-white py-4 rounded-2xl font-black cursor-pointer shadow-lg">
-              📂 เลือกรูปภาพตรวจ
+              📂 เลือก/ถ่ายรูปภาพตรวจ
               <input type="file" accept="image/*" multiple className="hidden" onChange={e => e.target.files && processStudentImages(e.target.files)} />
             </label>
             <button onClick={() => setCurrentStep(AppStep.SUBJECT_LIST)} className="w-full text-slate-400 font-bold">กลับหน้าหลัก</button>
