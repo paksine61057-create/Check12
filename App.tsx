@@ -39,11 +39,9 @@ const App: React.FC = () => {
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
   const [isKeyProcessed, setIsKeyProcessed] = useState(false);
 
-  // --- API Key Management ---
   const [userApiKey, setUserApiKey] = useState<string>(localStorage.getItem('user_api_key') || '');
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
 
-  // เด้ง Modal ทันทีถ้าไม่มี Key
   useEffect(() => {
     if (!userApiKey && !process.env.API_KEY) {
       const timer = setTimeout(() => setIsKeyModalOpen(true), 500);
@@ -75,7 +73,7 @@ const App: React.FC = () => {
         img.src = e.target?.result as string;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const maxDim = 1200; // ลดขนาดลงเล็กน้อยเพื่อความเร็วและลด error
+          const maxDim = 1200;
           let w = img.width, h = img.height;
           if (w > h) { if (w > maxDim) { h *= maxDim / w; w = maxDim; } }
           else { if (h > maxDim) { w *= maxDim / h; h = maxDim; } }
@@ -99,9 +97,13 @@ const App: React.FC = () => {
         if (data.isAuthError) setIsAuthError(true);
         return; 
       }
-      const updated = { ...activeSubject, answerKey: data.answers };
-      setActiveSubject(updated);
-      setIsKeyProcessed(true);
+      if (data.answers && Array.isArray(data.answers)) {
+        const updated = { ...activeSubject, answerKey: data.answers };
+        setActiveSubject(updated);
+        setIsKeyProcessed(true);
+      } else {
+        setErrorMessage("AI ไม่สามารถอ่านข้อมูลเฉลยได้");
+      }
     } catch (err: any) { 
       setErrorMessage(`เกิดข้อผิดพลาด: ${err.message || 'ไม่สามารถประมวลผลได้'}`); 
     }
@@ -109,7 +111,7 @@ const App: React.FC = () => {
   };
 
   const processStudentImages = async (files: FileList) => {
-    if (!activeSubject) return;
+    if (!activeSubject || !activeSubject.answerKey) return;
     setIsLoading(true); setErrorMessage(null); setIsAuthError(false);
     setProcessingProgress({ current: 0, total: files.length });
     const results = [...activeSubject.results];
@@ -126,25 +128,26 @@ const App: React.FC = () => {
             setIsAuthError(true);
             break;
           }
-          // กรณีมี error เฉพาะแผ่น ให้ข้ามไป
           continue;
         }
 
-        const answers: QuestionResult[] = data.answers.map((ans, idx) => ({
-          questionNo: idx + 1,
-          studentAnswer: ans,
-          correctAnswer: activeSubject.answerKey[idx],
-          isCorrect: ans === activeSubject.answerKey[idx]
-        }));
+        if (data.answers && Array.isArray(data.answers)) {
+          const qResults: QuestionResult[] = data.answers.map((ans, idx) => ({
+            questionNo: idx + 1,
+            studentAnswer: ans,
+            correctAnswer: activeSubject.answerKey[idx] || null,
+            isCorrect: ans !== null && ans !== 'multiple' && ans === activeSubject.answerKey[idx]
+          }));
 
-        results.push({
-          id: Math.random().toString(36).substr(2, 9),
-          studentNumber: data.studentId || (results.length + 1).toString(),
-          studentName: data.studentName || "ไม่ทราบชื่อ",
-          answers,
-          totalScore: answers.filter(a => a.isCorrect).length,
-          hasError: data.answers.some(a => a === null || a === 'multiple')
-        });
+          results.push({
+            id: Math.random().toString(36).substr(2, 9),
+            studentNumber: data.studentId || (results.length + 1).toString(),
+            studentName: data.studentName || "ไม่ทราบชื่อ",
+            answers: qResults,
+            totalScore: qResults.filter(a => a.isCorrect).length,
+            hasError: data.answers.some(a => a === null || a === 'multiple')
+          });
+        }
       }
       
       const updated = { ...activeSubject, results };
@@ -180,7 +183,6 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#f8fafc] pb-20 selection:bg-blue-100">
       <Navbar onOpenKey={() => setIsKeyModalOpen(true)} />
       
-      {/* API Key Modal - เด้งมาหน้าระบบเลย */}
       {isKeyModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4 transition-all duration-300">
           <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 fade-in duration-300">
@@ -366,7 +368,7 @@ const App: React.FC = () => {
                 </div>
               ) : (
                 <div className="grid grid-cols-5 sm:grid-cols-8 gap-2 p-4 bg-slate-50 rounded-[2rem] border border-slate-100 max-h-64 overflow-y-auto">
-                  {activeSubject.answerKey.map((ans, i) => (
+                  {activeSubject.answerKey && Array.isArray(activeSubject.answerKey) && activeSubject.answerKey.map((ans, i) => (
                     <div key={i} className="text-center p-3 bg-white rounded-2xl shadow-sm border border-slate-50">
                       <div className="text-[10px] font-black text-slate-300 mb-1">{i+1}</div>
                       <div className="font-black text-blue-600 text-lg">{ans || '?'}</div>

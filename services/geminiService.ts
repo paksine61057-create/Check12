@@ -4,12 +4,15 @@ import { Choice } from "../types";
 
 const cleanJsonResponse = (text: string | undefined): string => {
   if (!text) return "";
-  // ค้นหาขอบเขตของ JSON ในข้อความที่ส่งกลับมา
-  const jsonMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-  if (jsonMatch) {
-    return jsonMatch[0];
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    if (jsonMatch) {
+      return jsonMatch[0];
+    }
+  } catch (e) {
+    console.error("Regex error in cleanJsonResponse", e);
   }
-  return text.trim();
+  return (text || "").trim();
 };
 
 const mapToChoice = (val: any): Choice => {
@@ -50,10 +53,11 @@ export const analyzeAnswerSheet = async (
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // เตรียมข้อมูลภาพ (เช็คว่ามี Header หรือไม่)
     let imageData = base64Image;
-    if (base64Image.includes(',')) {
+    if (typeof base64Image === 'string' && base64Image.includes(',')) {
       imageData = base64Image.split(',')[1];
+    } else if (typeof base64Image !== 'string') {
+      throw new Error("Invalid image format");
     }
 
     const roleInstruction = isKey 
@@ -66,7 +70,7 @@ export const analyzeAnswerSheet = async (
 - ถ้าฝนหลายช่องในข้อเดียว ให้ตอบ "multiple"
 - ถ้าไม่ได้ฝนเลย ให้ตอบ null
 - ตอบกลับเป็น JSON เท่านั้น
-- ต้องมีข้อมูลครบทั้ง ${totalQuestions} ข้อ`;
+- ต้องมีข้อมูลครบทั้ง ${totalQuestions} ข้อ โดยระบุเลขข้อ q: 1 ถึง ${totalQuestions}`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -88,8 +92,8 @@ export const analyzeAnswerSheet = async (
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  q: { type: Type.INTEGER, description: "Question number" },
-                  val: { type: Type.STRING, description: "Marked choice (ก,ข,ค,ง,multiple,null)" }
+                  q: { type: Type.INTEGER },
+                  val: { type: Type.STRING }
                 },
                 required: ["q", "val"]
               }
@@ -103,22 +107,27 @@ export const analyzeAnswerSheet = async (
     });
 
     const resultText = response.text;
-    if (!resultText) throw new Error("AI ไม่ส่งข้อมูลข้อความกลับมา");
+    if (!resultText) throw new Error("AI ไม่ส่งข้อมูลกลับมา");
     
     const cleanedJson = cleanJsonResponse(resultText);
-    const data = JSON.parse(cleanedJson);
+    let data: any;
+    try {
+      data = JSON.parse(cleanedJson);
+    } catch (parseErr) {
+      throw new Error("AI ส่งข้อมูลผิดรูปแบบ (Invalid JSON)");
+    }
     
-    // ตรวจสอบว่า data.answers มีอยู่จริงและเป็น Array หรือไม่ (ป้องกัน Type error)
-    if (!data || !Array.isArray(data.answers)) {
-      throw new Error("โครงสร้างข้อมูลที่ AI ส่งกลับมาไม่ถูกต้อง (Missing answers array)");
+    if (!data || typeof data !== 'object' || !Array.isArray(data.answers)) {
+      throw new Error("โครงสร้างข้อมูลจาก AI ไม่ถูกต้อง");
     }
 
     const finalAnswers: Choice[] = new Array(totalQuestions).fill(null);
     
     data.answers.forEach((item: any) => {
-      if (item && typeof item.q === 'number') {
-        const idx = item.q - 1;
-        if (idx >= 0 && idx < totalQuestions) {
+      if (item && item.q !== undefined) {
+        const qNum = Number(item.q);
+        const idx = qNum - 1;
+        if (!isNaN(idx) && idx >= 0 && idx < totalQuestions) {
           finalAnswers[idx] = mapToChoice(item.val);
         }
       }
@@ -126,21 +135,25 @@ export const analyzeAnswerSheet = async (
 
     return {
       answers: finalAnswers,
-      studentId: data.id || "",
-      studentName: data.name || ""
+      studentId: data.id ? String(data.id) : "",
+      studentName: data.name ? String(data.name) : ""
     };
   } catch (err: any) {
     console.error("Gemini Service Error:", err);
-    const msg = err.message || "Unknown error";
+    let msg = err.message || "Unknown error";
     
-    if (msg.includes("401") || msg.includes("API_KEY_INVALID") || msg.includes("not found")) {
+    if (msg.includes("401") || msg.includes("API_KEY_INVALID")) {
       return { answers: [], error: "API Key ไม่ถูกต้อง", isAuthError: true };
     }
     if (msg.includes("429")) {
       return { answers: [], error: "โควต้าเต็มแล้ว (Rate limit) กรุณารอสักครู่" };
     }
     
-    // ส่งข้อความ Error ที่อ่านง่ายขึ้นกลับไป
-    return { answers: [], error: `เกิดข้อผิดพลาด: ${msg.includes("JSON") ? "AI ส่งข้อมูลผิดรูปแบบ" : msg}` };
+    // ป้องกัน "Type error" ข้อความห้วนๆ ให้แสดงคำอธิบายที่ชัดเจนขึ้น
+    if (msg.toLowerCase().includes("type error") || msg.toLowerCase().includes("typeerror")) {
+      msg = "ข้อมูลจาก AI ไม่สมบูรณ์หรือผิดประเภท";
+    }
+    
+    return { answers: [], error: `เกิดข้อผิดพลาด: ${msg}` };
   }
 };
