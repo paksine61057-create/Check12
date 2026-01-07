@@ -26,12 +26,12 @@ const mapToChoice = (val: any): Choice => {
 
 /**
  * Analyzes an OMR answer sheet image using Gemini 3 Flash.
- * Strictly adheres to @google/genai initialization and model access patterns.
  */
 export const analyzeAnswerSheet = async (
   base64Image: string,
   totalQuestions: number,
-  isKey: boolean = false
+  isKey: boolean = false,
+  customApiKey?: string // รองรับการรับ Key จาก UI
 ): Promise<{ 
   answers: Choice[], 
   studentId?: string, 
@@ -40,18 +40,17 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // API key must be obtained exclusively from process.env.API_KEY
-    const apiKey = process.env.API_KEY;
+    // ใช้ Custom Key จาก UI หากมี มิฉะนั้นใช้จาก Environment
+    const apiKey = customApiKey || process.env.API_KEY;
     
     if (!apiKey) {
       return { 
         answers: [], 
-        error: "API Key ยังไม่ได้ถูกตั้งค่า กรุณาตรวจสอบการตั้งค่าโปรเจกต์", 
+        error: "ยังไม่ได้ตั้งค่า API Key กรุณากรอกรหัสในเมนูตั้งค่า", 
         isAuthError: true 
       };
     }
 
-    // Initialize GoogleGenAI right before making the call
     const ai = new GoogleGenAI({ apiKey });
     
     const roleInstruction = isKey 
@@ -71,7 +70,6 @@ Response Requirement:
 - Return ONLY valid JSON.
 - Provide answers for exactly ${totalQuestions} questions.`;
 
-    // Using gemini-3-flash-preview for general multimodal text tasks
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
@@ -106,7 +104,6 @@ Response Requirement:
       }
     });
 
-    // Access text property directly as per latest SDK guidelines
     const resultText = response.text;
     if (!resultText) throw new Error("Empty response from AI");
     
@@ -131,11 +128,10 @@ Response Requirement:
     };
   } catch (err: any) {
     console.error("Gemini Analysis Error Detail:", err);
-    // Standard error handling for key issues
-    if (err.message?.includes("Requested entity was not found") || err.message?.includes("401") || err.message?.includes("key")) {
+    if (err.message?.includes("401") || err.message?.includes("key") || err.message?.includes("not found")) {
       return { 
         answers: [], 
-        error: "API Key ไม่ถูกต้องหรือยังไม่ได้เลือกคีย์ที่มี Billing", 
+        error: "API Key ไม่ถูกต้องหรือไม่มีสิทธิ์ใช้งาน (Auth Error)", 
         isAuthError: true 
       };
     }

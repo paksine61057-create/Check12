@@ -3,8 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Subject, AppStep, Choice, StudentResult, QuestionResult } from './types';
 import { analyzeAnswerSheet } from './services/geminiService';
 
-// Removed duplicate declare global/interface blocks as identifiers were already defined.
-
 interface NavbarProps {
   onOpenKey: () => void;
 }
@@ -25,9 +23,9 @@ const Navbar: React.FC<NavbarProps> = ({ onOpenKey }) => (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
         </svg>
-        <span className="text-xs font-bold hidden xs:inline">API Key</span>
+        <span className="text-xs font-bold hidden xs:inline">ตั้งค่า API Key</span>
       </button>
-      <div className="hidden sm:block text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v3.9 AI-Ready</div>
+      <div className="hidden sm:block text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v4.0</div>
     </div>
   </nav>
 );
@@ -42,25 +40,29 @@ const App: React.FC = () => {
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
   const [isKeyProcessed, setIsKeyProcessed] = useState(false);
 
-  // Initialize key check as per AI Studio guidelines
-  useEffect(() => {
-    const checkApiKey = async () => {
-      const aistudio = (window as any).aistudio;
-      if (aistudio && !(await aistudio.hasSelectedApiKey())) {
-        // Option to notify user if no key is selected, though we assume success after openSelectKey
-      }
-    };
-    checkApiKey();
-  }, []);
+  // --- API Key Management ---
+  const [userApiKey, setUserApiKey] = useState<string>(localStorage.getItem('user_api_key') || '');
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
 
-  const handleOpenKeySelection = async () => {
-    const aistudio = (window as any).aistudio;
-    if (aistudio) {
-      await aistudio.openSelectKey();
+  useEffect(() => {
+    if (!userApiKey && !process.env.API_KEY) {
+      setIsKeyModalOpen(true);
+    }
+  }, [userApiKey]);
+
+  const handleSaveKey = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const key = formData.get('apiKey') as string;
+    if (key.trim()) {
+      localStorage.setItem('user_api_key', key.trim());
+      setUserApiKey(key.trim());
+      setIsKeyModalOpen(false);
       setIsAuthError(false);
       setErrorMessage(null);
     }
   };
+  // --------------------------
 
   const resizeImage = (file: File): Promise<string> => {
     return new Promise((resolve) => {
@@ -89,7 +91,7 @@ const App: React.FC = () => {
     setIsLoading(true); setErrorMessage(null); setIsAuthError(false);
     try {
       const base64 = await resizeImage(file);
-      const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, true);
+      const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, true, userApiKey);
       if (data.error) { 
         setErrorMessage(data.error); 
         if (data.isAuthError) setIsAuthError(true);
@@ -111,7 +113,7 @@ const App: React.FC = () => {
       for (let i = 0; i < files.length; i++) {
         setProcessingProgress({ current: i + 1, total: files.length });
         const base64 = await resizeImage(files[i]);
-        const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, false);
+        const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, false, userApiKey);
         if (data.error) {
           if (data.isAuthError) {
             setErrorMessage(data.error);
@@ -164,8 +166,49 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-20">
-      <Navbar onOpenKey={handleOpenKeySelection} />
+      <Navbar onOpenKey={() => setIsKeyModalOpen(true)} />
       
+      {/* API Key Input Modal */}
+      {isKeyModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+            <h2 className="text-xl font-bold mb-4 text-slate-800 flex items-center gap-2">
+              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+              ตั้งค่า Gemini API Key
+            </h2>
+            <p className="text-sm text-slate-500 mb-6">กรุณากรอก API Key ของคุณเพื่อใช้งานระบบประมวลผลด้วย AI (ข้อมูลจะถูกเก็บไว้ในเครื่องของคุณเท่านั้น)</p>
+            <form onSubmit={handleSaveKey} className="space-y-4">
+              <input 
+                name="apiKey"
+                type="password"
+                defaultValue={userApiKey}
+                placeholder="กรอกรหัส API Key (AIzaSy...)"
+                className="w-full p-4 bg-slate-100 rounded-xl outline-none focus:ring-2 ring-blue-500 border-none font-mono text-sm"
+                autoFocus
+              />
+              <div className="flex gap-3">
+                <button 
+                  type="submit"
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-colors"
+                >
+                  บันทึก Key
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setIsKeyModalOpen(false)}
+                  className="px-6 py-3 text-slate-400 font-bold"
+                >
+                  ยกเลิก
+                </button>
+              </div>
+            </form>
+            <div className="mt-6 text-center">
+              <a href="https://ai.google.dev/" target="_blank" rel="noreferrer" className="text-xs text-blue-500 underline">วิธีขอรับ API Key ฟรี</a>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-xl mx-auto p-4 space-y-4">
         
         {errorMessage && (
@@ -178,17 +221,12 @@ const App: React.FC = () => {
             </div>
             {isAuthError && (
               <button 
-                onClick={handleOpenKeySelection}
+                onClick={() => setIsKeyModalOpen(true)}
                 className="mt-3 w-full bg-white/20 hover:bg-white/30 py-2 rounded-xl text-xs font-black transition-colors"
               >
-                🔄 เลือก API Key ใหม่ (GCP Paid Project)
+                🔄 แก้ไข API Key
               </button>
             )}
-            <div className="mt-2 text-center">
-              <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-[10px] text-white/80 underline">
-                วิธีตั้งค่า Billing สำหรับ Gemini API
-              </a>
-            </div>
           </div>
         )}
 
