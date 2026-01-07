@@ -4,7 +4,6 @@ import { Choice } from "../types";
 
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
-  // Search for JSON block or just trim if not found
   const jsonMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
   if (jsonMatch) {
     return jsonMatch[0];
@@ -25,6 +24,10 @@ const mapToChoice = (val: any): Choice => {
   return null;
 };
 
+/**
+ * Analyzes an OMR answer sheet image using Gemini 3 Flash.
+ * Strictly adheres to @google/genai initialization and model access patterns.
+ */
 export const analyzeAnswerSheet = async (
   base64Image: string,
   totalQuestions: number,
@@ -37,12 +40,18 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // ใช้ API_KEY จาก environment โดยตรงตามมาตรฐาน
+    // API key must be obtained exclusively from process.env.API_KEY
     const apiKey = process.env.API_KEY;
+    
     if (!apiKey) {
-      return { answers: [], error: "ไม่พบ API Key ในระบบ", isAuthError: true };
+      return { 
+        answers: [], 
+        error: "API Key ยังไม่ได้ถูกตั้งค่า กรุณาตรวจสอบการตั้งค่าโปรเจกต์", 
+        isAuthError: true 
+      };
     }
 
+    // Initialize GoogleGenAI right before making the call
     const ai = new GoogleGenAI({ apiKey });
     
     const roleInstruction = isKey 
@@ -55,16 +64,14 @@ Your task is to accurately extract answers from an OMR grid (choices: ก, ข, 
 IMPORTANT INSTRUCTIONS FOR MARK DETECTION:
 - Marks can be: FULL SHADING, CROSS-MARKS (X), TICKS, or CIRCLES.
 - Identify the most intentional mark in each row.
-- If a row has an 'X' or a cross inside a circle/box, treat it as a valid mark for that choice.
-- Do not fail the request due to shadows, low lighting, or handwriting styles. Use spatial reasoning to determine which box is marked.
 - If multiple boxes are clearly marked, return "multiple".
 - If a row is clearly empty, return null.
 
 Response Requirement:
 - Return ONLY valid JSON.
-- Provide answers for exactly ${totalQuestions} questions.
-- Extract Student ID (Number) and Name if visible on the sheet.`;
+- Provide answers for exactly ${totalQuestions} questions.`;
 
+    // Using gemini-3-flash-preview for general multimodal text tasks
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
@@ -75,7 +82,7 @@ Response Requirement:
       },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.1, // Low temperature for deterministic results
+        temperature: 0.1,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -86,7 +93,7 @@ Response Requirement:
                 type: Type.OBJECT,
                 properties: {
                   id: { type: Type.INTEGER },
-                  marked: { type: Type.STRING, nullable: true, description: "Choices: '1', '2', '3', '4', or 'multiple'" }
+                  marked: { type: Type.STRING, nullable: true }
                 },
                 required: ["id", "marked"]
               }
@@ -99,6 +106,7 @@ Response Requirement:
       }
     });
 
+    // Access text property directly as per latest SDK guidelines
     const resultText = response.text;
     if (!resultText) throw new Error("Empty response from AI");
     
@@ -123,23 +131,14 @@ Response Requirement:
     };
   } catch (err: any) {
     console.error("Gemini Analysis Error Detail:", err);
-    
-    // Check for specific API errors as per guidelines
-    if (err.message?.includes("429")) {
-      return { answers: [], error: "ระบบใช้งานเกินขีดจำกัดชั่วคราว (Rate Limit) กรุณารอ 1 นาทีแล้วลองใหม่" };
-    }
-    
-    if (err.message?.includes("Requested entity was not found.")) {
+    // Standard error handling for key issues
+    if (err.message?.includes("Requested entity was not found") || err.message?.includes("401") || err.message?.includes("key")) {
       return { 
         answers: [], 
-        error: "API Key ไม่ถูกต้องหรือโปรเจกต์ไม่ได้ตั้งค่า Billing กรุณาเลือกใหม่", 
+        error: "API Key ไม่ถูกต้องหรือยังไม่ได้เลือกคีย์ที่มี Billing", 
         isAuthError: true 
       };
     }
-
-    return { 
-      answers: [], 
-      error: "AI ประมวลผลภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง หรือขยับกล้องให้ขนานกับกระดาษมากขึ้น" 
-    };
+    return { answers: [], error: "AI ประมวลผลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" };
   }
 };

@@ -3,17 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Subject, AppStep, Choice, StudentResult, QuestionResult } from './types';
 import { analyzeAnswerSheet } from './services/geminiService';
 
-// Define the interface globally to avoid naming conflicts and ensure Window augmentation works correctly.
-// This handles the "Subsequent property declarations must have the same type" error.
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey(): Promise<boolean>;
-    openSelectKey(): Promise<void>;
-  }
-  interface Window {
-    aistudio?: AIStudio;
-  }
-}
+// Removed duplicate declare global/interface blocks as identifiers were already defined.
 
 interface NavbarProps {
   onOpenKey: () => void;
@@ -30,14 +20,14 @@ const Navbar: React.FC<NavbarProps> = ({ onOpenKey }) => (
     <div className="flex items-center gap-2">
       <button 
         onClick={onOpenKey}
-        className="bg-blue-700 hover:bg-blue-800 p-2 rounded-lg transition-colors border border-blue-400/30"
-        title="ตั้งค่า API Key"
+        className="bg-blue-700 hover:bg-blue-800 p-2 rounded-lg transition-colors border border-blue-400/30 flex items-center gap-2 px-3"
       >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
         </svg>
+        <span className="text-xs font-bold hidden xs:inline">API Key</span>
       </button>
-      <div className="hidden sm:block text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v3.7 Master</div>
+      <div className="hidden sm:block text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v3.9 AI-Ready</div>
     </div>
   </nav>
 );
@@ -51,47 +41,24 @@ const App: React.FC = () => {
   const [isAuthError, setIsAuthError] = useState(false);
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
   const [isKeyProcessed, setIsKeyProcessed] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
 
+  // Initialize key check as per AI Studio guidelines
   useEffect(() => {
-    const initializeKey = async () => {
-      try {
-        // หากมี API_KEY ใน env อยู่แล้ว (เช่น กรณีรันแบบปกติ) ให้ผ่านได้เลย
-        if (process.env.API_KEY && process.env.API_KEY.length > 5) {
-          setHasApiKey(true);
-          return;
-        }
-        
-        // ตรวจสอบผ่านระบบ aistudio dialog
-        if (window.aistudio) {
-          const selected = await window.aistudio.hasSelectedApiKey();
-          setHasApiKey(selected);
-        } else {
-          // ถ้าไม่มี aistudio object ให้ถือว่าพร้อมใช้ (กรณีรันนอก sandbox)
-          setHasApiKey(true);
-        }
-      } catch (e) {
-        console.error("Key check error:", e);
-        setHasApiKey(true);
+    const checkApiKey = async () => {
+      const aistudio = (window as any).aistudio;
+      if (aistudio && !(await aistudio.hasSelectedApiKey())) {
+        // Option to notify user if no key is selected, though we assume success after openSelectKey
       }
     };
-    initializeKey();
+    checkApiKey();
   }, []);
 
-  const handleOpenKeyModal = async () => {
-    try {
-      if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-        await window.aistudio.openSelectKey();
-        // ตามกฎ: ให้ถือว่าสำเร็จทันทีหลังเรียก Dialog เพื่อป้องกัน Race Condition
-        setHasApiKey(true);
-        setIsAuthError(false);
-        setErrorMessage(null);
-      } else {
-        alert("กรุณาตั้งค่า API_KEY ในไฟล์ .env หรือใช้งานผ่าน Google AI Studio Sandbox");
-      }
-    } catch (err) {
-      console.error("Failed to open key modal:", err);
-      setHasApiKey(true);
+  const handleOpenKeySelection = async () => {
+    const aistudio = (window as any).aistudio;
+    if (aistudio) {
+      await aistudio.openSelectKey();
+      setIsAuthError(false);
+      setErrorMessage(null);
     }
   };
 
@@ -107,7 +74,7 @@ const App: React.FC = () => {
           const maxDim = 1600; 
           let w = img.width, h = img.height;
           if (w > h) { if (w > maxDim) { h *= maxDim / w; w = maxDim; } }
-          else { if (h > maxDim) { h *= maxDim / h; h = maxDim; } }
+          else { if (h > maxDim) { w *= maxDim / h; h = maxDim; } }
           canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, w, h);
@@ -195,49 +162,10 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  // กรณีรอผลการเช็ค Key
-  if (hasApiKey === null) {
-    return (
-      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  // แสดงหน้าจอขอ API Key หากยังไม่ได้เลือก
-  if (hasApiKey === false) {
-    return (
-      <div className="min-h-screen bg-[#f8fafc] flex flex-col">
-        <Navbar onOpenKey={handleOpenKeyModal} />
-        <main className="flex-1 flex items-center justify-center p-6 text-center">
-          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl max-w-sm w-full space-y-6">
-            <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
-              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-black text-slate-800">เชื่อมต่อ API</h2>
-            <p className="text-slate-500 text-sm leading-relaxed">
-              กรุณาเลือก API Key ที่มี Billing เพื่อใช้งานระบบ AI ในการตรวจข้อสอบ
-            </p>
-            <button 
-              onClick={handleOpenKeyModal}
-              className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:bg-blue-700 active:scale-95 transition-all"
-            >
-              ตั้งค่า API Key
-            </button>
-            <p className="text-[10px] text-slate-400">
-              ไปที่ <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">คู่มือการตั้งค่า Billing</a>
-            </p>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-20">
-      <Navbar onOpenKey={handleOpenKeyModal} />
+      <Navbar onOpenKey={handleOpenKeySelection} />
+      
       <main className="max-w-xl mx-auto p-4 space-y-4">
         
         {errorMessage && (
@@ -250,12 +178,17 @@ const App: React.FC = () => {
             </div>
             {isAuthError && (
               <button 
-                onClick={handleOpenKeyModal}
+                onClick={handleOpenKeySelection}
                 className="mt-3 w-full bg-white/20 hover:bg-white/30 py-2 rounded-xl text-xs font-black transition-colors"
               >
-                🔄 อัปเดต/เลือก API Key ใหม่
+                🔄 เลือก API Key ใหม่ (GCP Paid Project)
               </button>
             )}
+            <div className="mt-2 text-center">
+              <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-[10px] text-white/80 underline">
+                วิธีตั้งค่า Billing สำหรับ Gemini API
+              </a>
+            </div>
           </div>
         )}
 
@@ -383,16 +316,9 @@ const App: React.FC = () => {
                     ))}
                   </tbody>
                 </table>
-                {activeSubject.results.length === 0 && (
-                  <div className="py-10 text-center text-slate-300 font-bold italic">ยังไม่มีข้อมูล</div>
-                )}
               </div>
             </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <button onClick={() => setCurrentStep(AppStep.SCAN_STUDENTS)} className="bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg">ตรวจเพิ่ม</button>
-              <button onClick={() => setCurrentStep(AppStep.SUBJECT_LIST)} className="bg-slate-200 text-slate-600 py-4 rounded-2xl font-black">กลับหน้าหลัก</button>
-            </div>
+            <button onClick={() => setCurrentStep(AppStep.SUBJECT_LIST)} className="w-full bg-slate-200 text-slate-600 py-4 rounded-2xl font-black">กลับหน้าหลัก</button>
           </div>
         )}
       </main>
