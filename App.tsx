@@ -3,11 +3,16 @@ import React, { useState, useEffect } from 'react';
 import { Subject, AppStep, Choice, StudentResult, QuestionResult } from './types';
 import { analyzeAnswerSheet } from './services/geminiService';
 
-// Fix: Use the existing AIStudio type provided by the environment to avoid conflicts.
-// The compiler already knows about AIStudio, so we reference it directly.
+// ประกาศ Interface สำหรับความปลอดภัยของ TypeScript
+// Fix: Renamed to AIStudio to match existing global property type for window.aistudio
+interface AIStudio {
+  hasSelectedApiKey(): Promise<boolean>;
+  openSelectKey(): Promise<void>;
+}
+
 declare global {
   interface Window {
-    aistudio: AIStudio;
+    aistudio?: AIStudio;
   }
 }
 
@@ -17,9 +22,9 @@ const Navbar = () => (
       <div className="bg-white p-1 rounded-lg">
         <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" /></svg>
       </div>
-      <h1 className="text-lg font-bold">ระบบตอดสวบ</h1>
+      <h1 className="text-lg font-bold">ระบบตรวจข้อสอบ</h1>
     </div>
-    <div className="text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v3.5 KeySetup</div>
+    <div className="text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v3.6 FixKey</div>
   </nav>
 );
 
@@ -35,31 +40,45 @@ const App: React.FC = () => {
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
 
   useEffect(() => {
-    checkApiKey();
+    const initializeKey = async () => {
+      try {
+        // ตรวจสอบเบื้องต้นจาก process.env
+        if (process.env.API_KEY && process.env.API_KEY !== "") {
+          setHasApiKey(true);
+          return;
+        }
+        
+        // ถ้าไม่มีใน env ให้เช็คผ่าน window.aistudio
+        if (window.aistudio) {
+          const selected = await window.aistudio.hasSelectedApiKey();
+          setHasApiKey(selected);
+        } else {
+          // กรณีไม่ได้รันใน environment ที่มี aistudio ให้ผ่านไปก่อน (เผื่อใช้ key จากที่อื่น)
+          setHasApiKey(true);
+        }
+      } catch (e) {
+        console.error("Key check error:", e);
+        setHasApiKey(true);
+      }
+    };
+    initializeKey();
   }, []);
 
-  const checkApiKey = async () => {
-    try {
-      // ตรวจสอบว่ามี API Key ใน env หรือผ่าน aistudio หรือไม่
-      const hasKey = !!process.env.API_KEY;
-      if (!hasKey && window.aistudio) {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasApiKey(selected);
-      } else {
-        setHasApiKey(hasKey);
-      }
-    } catch (e) {
-      setHasApiKey(!!process.env.API_KEY);
-    }
-  };
-
   const handleOpenKeyModal = async () => {
-    if (window.aistudio) {
-      await window.aistudio.openSelectKey();
-      // หลังจากเปิด dialog เราถือว่าผู้ใช้อาจจะเลือกแล้ว ให้ลองทำงานต่อ
+    try {
+      if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+        await window.aistudio.openSelectKey();
+        // ตามกฎ Race Condition: ให้ถือว่าสำเร็จทันทีหลังเรียก Dialog
+        setHasApiKey(true);
+        setIsAuthError(false);
+        setErrorMessage(null);
+      } else {
+        alert("ขออภัย: ไม่พบระบบจัดการ API Key ในเบราว์เซอร์นี้");
+      }
+    } catch (err) {
+      console.error("Failed to open key modal:", err);
+      // พยายามให้ไปต่อได้
       setHasApiKey(true);
-      setIsAuthError(false);
-      setErrorMessage(null);
     }
   };
 
@@ -163,30 +182,39 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  // แสดงหน้าจอขอ API Key หากไม่มี
+  // กรณีรอผลการเช็ค Key
+  if (hasApiKey === null) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  // แสดงหน้าจอขอ API Key หากไม่มีและอยู่ในเงื่อนไข
   if (hasApiKey === false) {
     return (
       <div className="min-h-screen bg-[#f8fafc] flex flex-col">
         <Navbar />
-        <main className="flex-1 flex items-center justify-center p-6">
-          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl max-w-sm w-full text-center space-y-6">
+        <main className="flex-1 flex items-center justify-center p-6 text-center">
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl max-w-sm w-full space-y-6">
             <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
               <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
               </svg>
             </div>
-            <h2 className="text-2xl font-black text-slate-800">เชื่อมต่อ Gemini API</h2>
+            <h2 className="text-2xl font-black text-slate-800">เชื่อมต่อ API</h2>
             <p className="text-slate-500 text-sm leading-relaxed">
-              ระบบจำเป็นต้องใช้ API Key จาก Google AI Studio เพื่อใช้ในการประมวลผลภาพข้อสอบ กรุณากดปุ่มด้านล่างเพื่อเลือกกุญแจของคุณ
+              กรุณาเลือก API Key ที่มี Billing เพื่อใช้งานระบบ AI ในการตรวจข้อสอบ
             </p>
             <button 
               onClick={handleOpenKeyModal}
-              className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:bg-blue-700 transition-colors"
+              className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:bg-blue-700 active:scale-95 transition-all"
             >
               ตั้งค่า API Key
             </button>
             <p className="text-[10px] text-slate-400">
-              ไปที่ <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">คู่มือการตั้งค่า Billing</a> สำหรับโปรเจกต์แบบจ่ายตามจริง
+              ไปที่ <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">คู่มือการตั้งค่า Billing</a>
             </p>
           </div>
         </main>
