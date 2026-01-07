@@ -3,20 +3,23 @@ import React, { useState, useEffect } from 'react';
 import { Subject, AppStep, Choice, StudentResult, QuestionResult } from './types';
 import { analyzeAnswerSheet } from './services/geminiService';
 
-// ประกาศ Interface สำหรับความปลอดภัยของ TypeScript
-// Fix: Renamed to AIStudio to match existing global property type for window.aistudio
-interface AIStudio {
-  hasSelectedApiKey(): Promise<boolean>;
-  openSelectKey(): Promise<void>;
-}
-
+// Define the interface globally to avoid naming conflicts and ensure Window augmentation works correctly.
+// This handles the "Subsequent property declarations must have the same type" error.
 declare global {
+  interface AIStudio {
+    hasSelectedApiKey(): Promise<boolean>;
+    openSelectKey(): Promise<void>;
+  }
   interface Window {
     aistudio?: AIStudio;
   }
 }
 
-const Navbar = () => (
+interface NavbarProps {
+  onOpenKey: () => void;
+}
+
+const Navbar: React.FC<NavbarProps> = ({ onOpenKey }) => (
   <nav className="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-50">
     <div className="flex items-center gap-3">
       <div className="bg-white p-1 rounded-lg">
@@ -24,7 +27,18 @@ const Navbar = () => (
       </div>
       <h1 className="text-lg font-bold">ระบบตรวจข้อสอบ</h1>
     </div>
-    <div className="text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v3.6 FixKey</div>
+    <div className="flex items-center gap-2">
+      <button 
+        onClick={onOpenKey}
+        className="bg-blue-700 hover:bg-blue-800 p-2 rounded-lg transition-colors border border-blue-400/30"
+        title="ตั้งค่า API Key"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+        </svg>
+      </button>
+      <div className="hidden sm:block text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v3.7 Master</div>
+    </div>
   </nav>
 );
 
@@ -42,18 +56,18 @@ const App: React.FC = () => {
   useEffect(() => {
     const initializeKey = async () => {
       try {
-        // ตรวจสอบเบื้องต้นจาก process.env
-        if (process.env.API_KEY && process.env.API_KEY !== "") {
+        // หากมี API_KEY ใน env อยู่แล้ว (เช่น กรณีรันแบบปกติ) ให้ผ่านได้เลย
+        if (process.env.API_KEY && process.env.API_KEY.length > 5) {
           setHasApiKey(true);
           return;
         }
         
-        // ถ้าไม่มีใน env ให้เช็คผ่าน window.aistudio
+        // ตรวจสอบผ่านระบบ aistudio dialog
         if (window.aistudio) {
           const selected = await window.aistudio.hasSelectedApiKey();
           setHasApiKey(selected);
         } else {
-          // กรณีไม่ได้รันใน environment ที่มี aistudio ให้ผ่านไปก่อน (เผื่อใช้ key จากที่อื่น)
+          // ถ้าไม่มี aistudio object ให้ถือว่าพร้อมใช้ (กรณีรันนอก sandbox)
           setHasApiKey(true);
         }
       } catch (e) {
@@ -68,16 +82,15 @@ const App: React.FC = () => {
     try {
       if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
         await window.aistudio.openSelectKey();
-        // ตามกฎ Race Condition: ให้ถือว่าสำเร็จทันทีหลังเรียก Dialog
+        // ตามกฎ: ให้ถือว่าสำเร็จทันทีหลังเรียก Dialog เพื่อป้องกัน Race Condition
         setHasApiKey(true);
         setIsAuthError(false);
         setErrorMessage(null);
       } else {
-        alert("ขออภัย: ไม่พบระบบจัดการ API Key ในเบราว์เซอร์นี้");
+        alert("กรุณาตั้งค่า API_KEY ในไฟล์ .env หรือใช้งานผ่าน Google AI Studio Sandbox");
       }
     } catch (err) {
       console.error("Failed to open key modal:", err);
-      // พยายามให้ไปต่อได้
       setHasApiKey(true);
     }
   };
@@ -94,7 +107,7 @@ const App: React.FC = () => {
           const maxDim = 1600; 
           let w = img.width, h = img.height;
           if (w > h) { if (w > maxDim) { h *= maxDim / w; w = maxDim; } }
-          else { if (h > maxDim) { w *= maxDim / h; h = maxDim; } }
+          else { if (h > maxDim) { h *= maxDim / h; h = maxDim; } }
           canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, w, h);
@@ -191,11 +204,11 @@ const App: React.FC = () => {
     );
   }
 
-  // แสดงหน้าจอขอ API Key หากไม่มีและอยู่ในเงื่อนไข
+  // แสดงหน้าจอขอ API Key หากยังไม่ได้เลือก
   if (hasApiKey === false) {
     return (
       <div className="min-h-screen bg-[#f8fafc] flex flex-col">
-        <Navbar />
+        <Navbar onOpenKey={handleOpenKeyModal} />
         <main className="flex-1 flex items-center justify-center p-6 text-center">
           <div className="bg-white p-8 rounded-[2.5rem] shadow-xl max-w-sm w-full space-y-6">
             <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
@@ -224,7 +237,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-20">
-      <Navbar />
+      <Navbar onOpenKey={handleOpenKeyModal} />
       <main className="max-w-xl mx-auto p-4 space-y-4">
         
         {errorMessage && (
