@@ -4,12 +4,12 @@ import { Choice } from "../types";
 
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
-  // ค้นหา JSON block ที่อยู่ในรูป { ... } หรือ [ ... ]
+  // Search for JSON block or just trim if not found
   const jsonMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
   if (jsonMatch) {
     return jsonMatch[0];
   }
-  return text.replace(/```json/g, "").replace(/```/g, "").trim();
+  return text.trim();
 };
 
 const mapToChoice = (val: any): Choice => {
@@ -75,7 +75,7 @@ Response Requirement:
       },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.1, // ปรับเล็กน้อยเพื่อให้มีความยืดหยุ่นในการมองภาพกากบาทที่จาง
+        temperature: 0.1, // Low temperature for deterministic results
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -124,9 +124,17 @@ Response Requirement:
   } catch (err: any) {
     console.error("Gemini Analysis Error Detail:", err);
     
-    // ตรวจสอบ Error พิเศษ เช่น Rate Limit
+    // Check for specific API errors as per guidelines
     if (err.message?.includes("429")) {
       return { answers: [], error: "ระบบใช้งานเกินขีดจำกัดชั่วคราว (Rate Limit) กรุณารอ 1 นาทีแล้วลองใหม่" };
+    }
+    
+    if (err.message?.includes("Requested entity was not found.")) {
+      return { 
+        answers: [], 
+        error: "API Key ไม่ถูกต้องหรือโปรเจกต์ไม่ได้ตั้งค่า Billing กรุณาเลือกใหม่", 
+        isAuthError: true 
+      };
     }
 
     return { 

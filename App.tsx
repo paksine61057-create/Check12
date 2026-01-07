@@ -3,6 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { Subject, AppStep, Choice, StudentResult, QuestionResult } from './types';
 import { analyzeAnswerSheet } from './services/geminiService';
 
+// Fix: Use the existing AIStudio type provided by the environment to avoid conflicts.
+// The compiler already knows about AIStudio, so we reference it directly.
+declare global {
+  interface Window {
+    aistudio: AIStudio;
+  }
+}
+
 const Navbar = () => (
   <nav className="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-50">
     <div className="flex items-center gap-3">
@@ -11,7 +19,7 @@ const Navbar = () => (
       </div>
       <h1 className="text-lg font-bold">ระบบตอดสวบ</h1>
     </div>
-    <div className="text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v3.4 Final</div>
+    <div className="text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v3.5 KeySetup</div>
   </nav>
 );
 
@@ -21,8 +29,39 @@ const App: React.FC = () => {
   const [activeSubject, setActiveSubject] = useState<Subject | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isAuthError, setIsAuthError] = useState(false);
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
   const [isKeyProcessed, setIsKeyProcessed] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    checkApiKey();
+  }, []);
+
+  const checkApiKey = async () => {
+    try {
+      // ตรวจสอบว่ามี API Key ใน env หรือผ่าน aistudio หรือไม่
+      const hasKey = !!process.env.API_KEY;
+      if (!hasKey && window.aistudio) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(selected);
+      } else {
+        setHasApiKey(hasKey);
+      }
+    } catch (e) {
+      setHasApiKey(!!process.env.API_KEY);
+    }
+  };
+
+  const handleOpenKeyModal = async () => {
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      // หลังจากเปิด dialog เราถือว่าผู้ใช้อาจจะเลือกแล้ว ให้ลองทำงานต่อ
+      setHasApiKey(true);
+      setIsAuthError(false);
+      setErrorMessage(null);
+    }
+  };
 
   const resizeImage = (file: File): Promise<string> => {
     return new Promise((resolve) => {
@@ -48,11 +87,15 @@ const App: React.FC = () => {
 
   const processKeyImage = async (file: File) => {
     if (!activeSubject) return;
-    setIsLoading(true); setErrorMessage(null);
+    setIsLoading(true); setErrorMessage(null); setIsAuthError(false);
     try {
       const base64 = await resizeImage(file);
       const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, true);
-      if (data.error) { setErrorMessage(data.error); return; }
+      if (data.error) { 
+        setErrorMessage(data.error); 
+        if (data.isAuthError) setIsAuthError(true);
+        return; 
+      }
       const updated = { ...activeSubject, answerKey: data.answers };
       setActiveSubject(updated);
       setIsKeyProcessed(true);
@@ -62,7 +105,7 @@ const App: React.FC = () => {
 
   const processStudentImages = async (files: FileList) => {
     if (!activeSubject) return;
-    setIsLoading(true); setErrorMessage(null);
+    setIsLoading(true); setErrorMessage(null); setIsAuthError(false);
     setProcessingProgress({ current: 0, total: files.length });
     const results = [...activeSubject.results];
     try {
@@ -70,7 +113,14 @@ const App: React.FC = () => {
         setProcessingProgress({ current: i + 1, total: files.length });
         const base64 = await resizeImage(files[i]);
         const data = await analyzeAnswerSheet(base64, activeSubject.totalQuestions, false);
-        if (data.error) continue;
+        if (data.error) {
+          if (data.isAuthError) {
+            setErrorMessage(data.error);
+            setIsAuthError(true);
+            break;
+          }
+          continue;
+        }
         const answers: QuestionResult[] = data.answers.map((ans, idx) => ({
           questionNo: idx + 1,
           studentAnswer: ans,
@@ -113,15 +163,58 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  // แสดงหน้าจอขอ API Key หากไม่มี
+  if (hasApiKey === false) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex flex-col">
+        <Navbar />
+        <main className="flex-1 flex items-center justify-center p-6">
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl max-w-sm w-full text-center space-y-6">
+            <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-black text-slate-800">เชื่อมต่อ Gemini API</h2>
+            <p className="text-slate-500 text-sm leading-relaxed">
+              ระบบจำเป็นต้องใช้ API Key จาก Google AI Studio เพื่อใช้ในการประมวลผลภาพข้อสอบ กรุณากดปุ่มด้านล่างเพื่อเลือกกุญแจของคุณ
+            </p>
+            <button 
+              onClick={handleOpenKeyModal}
+              className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:bg-blue-700 transition-colors"
+            >
+              ตั้งค่า API Key
+            </button>
+            <p className="text-[10px] text-slate-400">
+              ไปที่ <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">คู่มือการตั้งค่า Billing</a> สำหรับโปรเจกต์แบบจ่ายตามจริง
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-20">
       <Navbar />
       <main className="max-w-xl mx-auto p-4 space-y-4">
         
         {errorMessage && (
-          <div className="bg-red-500 text-white p-4 rounded-2xl text-sm font-bold shadow-lg">
-            {errorMessage}
-            <button onClick={() => setErrorMessage(null)} className="float-right underline">ปิด</button>
+          <div className="bg-red-500 text-white p-4 rounded-2xl shadow-lg animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="flex justify-between items-start">
+              <div className="text-sm font-bold">{errorMessage}</div>
+              <button onClick={() => setErrorMessage(null)} className="ml-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            {isAuthError && (
+              <button 
+                onClick={handleOpenKeyModal}
+                className="mt-3 w-full bg-white/20 hover:bg-white/30 py-2 rounded-xl text-xs font-black transition-colors"
+              >
+                🔄 อัปเดต/เลือก API Key ใหม่
+              </button>
+            )}
           </div>
         )}
 
