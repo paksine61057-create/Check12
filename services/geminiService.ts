@@ -2,8 +2,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Choice } from "../types";
 
-const cleanJsonResponse = (text: string): string => {
+const cleanJsonResponse = (text: string | undefined): string => {
   if (!text) return "";
+  // ค้นหาขอบเขตของ JSON ในข้อความที่ส่งกลับมา
   const jsonMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
   if (jsonMatch) {
     return jsonMatch[0];
@@ -24,9 +25,6 @@ const mapToChoice = (val: any): Choice => {
   return null;
 };
 
-/**
- * Analyzes an OMR answer sheet image using Gemini 3 Flash.
- */
 export const analyzeAnswerSheet = async (
   base64Image: string,
   totalQuestions: number,
@@ -42,39 +40,40 @@ export const analyzeAnswerSheet = async (
   try {
     const apiKey = customApiKey || process.env.API_KEY;
     
-    if (!apiKey) {
+    if (!apiKey || apiKey.trim().length < 5) {
       return { 
         answers: [], 
-        error: "ยังไม่ได้ตั้งค่า API Key กรุณากรอกรหัสในเมนูตั้งค่า", 
+        error: "กรุณาตั้งค่า API Key ก่อนเริ่มใช้งาน", 
         isAuthError: true 
       };
     }
 
     const ai = new GoogleGenAI({ apiKey });
     
+    // เตรียมข้อมูลภาพ (เช็คว่ามี Header หรือไม่)
+    let imageData = base64Image;
+    if (base64Image.includes(',')) {
+      imageData = base64Image.split(',')[1];
+    }
+
     const roleInstruction = isKey 
-      ? "You are a specialized OMR scanning expert for Answer Keys." 
-      : "You are a specialized OMR scanning expert for Student Answer Sheets.";
+      ? "คุณคือผู้เชี่ยวชาญด้านการตรวจใบเฉลย (Answer Key)" 
+      : "คุณคือผู้เชี่ยวชาญด้านการตรวจกระดาษคำตอบนักเรียน";
 
     const systemInstruction = `${roleInstruction}
-Your task is to accurately extract answers from an OMR grid (choices: ก, ข, ค, ง).
-
-IMPORTANT INSTRUCTIONS FOR MARK DETECTION:
-- Marks can be: FULL SHADING, CROSS-MARKS (X), TICKS, or CIRCLES.
-- Identify the most intentional mark in each row.
-- If multiple boxes are clearly marked, return "multiple".
-- If a row is clearly empty, return null.
-
-Response Requirement:
-- Return ONLY valid JSON.
-- Provide answers for exactly ${totalQuestions} questions.`;
+หน้าที่ของคุณคืออ่านจุดที่ถูกฝน (ก, ข, ค, ง) จากรูปภาพ
+กฎสำคัญ:
+- ถ้าฝนหลายช่องในข้อเดียว ให้ตอบ "multiple"
+- ถ้าไม่ได้ฝนเลย ให้ตอบ null
+- ตอบกลับเป็น JSON เท่านั้น
+- ต้องมีข้อมูลครบทั้ง ${totalQuestions} ข้อ`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
-          { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: `Extract answers for questions 1 to ${totalQuestions}. Scan for student metadata if available.` }
+          { inlineData: { mimeType: "image/jpeg", data: imageData } },
+          { text: `Extract answers for items 1 to ${totalQuestions}. Also identify student ID and name if present.` }
         ]
       },
       config: {
@@ -84,66 +83,64 @@ Response Requirement:
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            questions: {
+            answers: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  id: { type: Type.INTEGER },
-                  marked: { type: Type.STRING, nullable: true }
+                  q: { type: Type.INTEGER, description: "Question number" },
+                  val: { type: Type.STRING, description: "Marked choice (ก,ข,ค,ง,multiple,null)" }
                 },
-                required: ["id", "marked"]
+                required: ["q", "val"]
               }
             },
-            studentNumber: { type: Type.STRING },
-            studentName: { type: Type.STRING }
+            id: { type: Type.STRING },
+            name: { type: Type.STRING }
           },
-          required: ["questions"]
+          required: ["answers"]
         }
       }
     });
 
     const resultText = response.text;
-    if (!resultText) throw new Error("Empty response from AI");
+    if (!resultText) throw new Error("AI ไม่ส่งข้อมูลข้อความกลับมา");
     
     const cleanedJson = cleanJsonResponse(resultText);
     const data = JSON.parse(cleanedJson);
     
-    const answers: Choice[] = new Array(totalQuestions).fill(null);
-    
-    if (data.questions && Array.isArray(data.questions)) {
-      data.questions.forEach((q: any) => {
-        const idx = parseInt(String(q.id)) - 1;
-        if (idx >= 0 && idx < totalQuestions) {
-          answers[idx] = mapToChoice(q.marked);
-        }
-      });
+    // ตรวจสอบว่า data.answers มีอยู่จริงและเป็น Array หรือไม่ (ป้องกัน Type error)
+    if (!data || !Array.isArray(data.answers)) {
+      throw new Error("โครงสร้างข้อมูลที่ AI ส่งกลับมาไม่ถูกต้อง (Missing answers array)");
     }
 
+    const finalAnswers: Choice[] = new Array(totalQuestions).fill(null);
+    
+    data.answers.forEach((item: any) => {
+      if (item && typeof item.q === 'number') {
+        const idx = item.q - 1;
+        if (idx >= 0 && idx < totalQuestions) {
+          finalAnswers[idx] = mapToChoice(item.val);
+        }
+      }
+    });
+
     return {
-      answers,
-      studentId: data.studentNumber || "",
-      studentName: data.studentName || ""
+      answers: finalAnswers,
+      studentId: data.id || "",
+      studentName: data.name || ""
     };
   } catch (err: any) {
-    console.error("Gemini Analysis Error Detail:", err);
+    console.error("Gemini Service Error:", err);
+    const msg = err.message || "Unknown error";
     
-    const errorMsg = err.message || "";
-    
-    // ดักจับ Error เฉพาะทางเพื่อให้ผู้ใช้เข้าใจปัญหา
-    if (errorMsg.includes("401") || errorMsg.includes("API_KEY_INVALID") || errorMsg.includes("not found")) {
-      return { answers: [], error: "API Key ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง", isAuthError: true };
+    if (msg.includes("401") || msg.includes("API_KEY_INVALID") || msg.includes("not found")) {
+      return { answers: [], error: "API Key ไม่ถูกต้อง", isAuthError: true };
     }
-    if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED")) {
-      return { answers: [], error: "โควต้าการใช้งานหมด (Too many requests) กรุณารอสักครู่แล้วลองใหม่" };
-    }
-    if (errorMsg.includes("403") || errorMsg.includes("PERMISSION_DENIED")) {
-      return { answers: [], error: "ถูกปฏิเสธสิทธิ์การเข้าถึง (อาจเพราะยังไม่ได้เปิด Billing ใน Google Cloud)", isAuthError: true };
-    }
-    if (errorMsg.includes("fetch")) {
-      return { answers: [], error: "ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้ กรุณาตรวจสอบเครือข่าย" };
+    if (msg.includes("429")) {
+      return { answers: [], error: "โควต้าเต็มแล้ว (Rate limit) กรุณารอสักครู่" };
     }
     
-    return { answers: [], error: "AI ประมวลผลไม่สำเร็จ: " + (errorMsg.length > 50 ? errorMsg.substring(0, 50) + "..." : errorMsg) };
+    // ส่งข้อความ Error ที่อ่านง่ายขึ้นกลับไป
+    return { answers: [], error: `เกิดข้อผิดพลาด: ${msg.includes("JSON") ? "AI ส่งข้อมูลผิดรูปแบบ" : msg}` };
   }
 };
