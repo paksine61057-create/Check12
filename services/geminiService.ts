@@ -2,22 +2,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Choice } from "../types";
 
-const getSafeApiKey = (): string => {
-  let key = "";
-  try {
-    const envKey = (typeof process !== 'undefined' && process.env?.API_KEY) ? process.env.API_KEY : "";
-    const windowKey = (window as any).API_KEY || "";
-    const manualKey = localStorage.getItem('manual_api_key') || "";
-    key = envKey || windowKey || manualKey || "";
-  } catch (e) {
-    key = localStorage.getItem('manual_api_key') || (window as any).API_KEY || "";
-  }
-  return key.toString().trim().replace(/^['"]|['"]$/g, '');
-};
-
 const cleanJsonResponse = (text: string): string => {
   if (!text) return "";
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  // ค้นหา JSON block ที่อยู่ในรูป { ... } หรือ [ ... ]
+  const jsonMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
   if (jsonMatch) {
     return jsonMatch[0];
   }
@@ -49,46 +37,45 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    const apiKey = getSafeApiKey();
-    if (!apiKey || apiKey.length < 5) {
-      return { answers: [], error: "กรุณาเชื่อมต่อ API Key ก่อน", isAuthError: true };
+    // ใช้ API_KEY จาก environment โดยตรงตามมาตรฐาน
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      return { answers: [], error: "ไม่พบ API Key ในระบบ", isAuthError: true };
     }
 
     const ai = new GoogleGenAI({ apiKey });
     
     const roleInstruction = isKey 
-      ? "You are a professional Answer Key OMR Scanner." 
-      : "You are a professional Student Answer Sheet OMR Scanner.";
+      ? "You are a specialized OMR scanning expert for Answer Keys." 
+      : "You are a specialized OMR scanning expert for Student Answer Sheets.";
 
     const systemInstruction = `${roleInstruction}
-Your task is to extract marked answers from a 4-choice OMR grid (ก, ข, ค, ง).
-CRITICAL: Do not complain about image quality, shadows, or blur. Use your best judgment to identify the darkest mark in each row.
+Your task is to accurately extract answers from an OMR grid (choices: ก, ข, ค, ง).
 
-Instructions:
-1. Identify ${totalQuestions} questions.
-2. For each row, return the index "1" (ก), "2" (ข), "3" (ค), or "4" (ง) that is marked.
-3. If a row is clearly empty, return null.
-4. If multiple marks exist, return "multiple".
-5. Extract handwritten student ID and Name if present.
+IMPORTANT INSTRUCTIONS FOR MARK DETECTION:
+- Marks can be: FULL SHADING, CROSS-MARKS (X), TICKS, or CIRCLES.
+- Identify the most intentional mark in each row.
+- If a row has an 'X' or a cross inside a circle/box, treat it as a valid mark for that choice.
+- Do not fail the request due to shadows, low lighting, or handwriting styles. Use spatial reasoning to determine which box is marked.
+- If multiple boxes are clearly marked, return "multiple".
+- If a row is clearly empty, return null.
 
-Response must be strictly valid JSON:
-{
-  "questions": [{"id": 1, "marked": "1"}],
-  "studentNumber": "string",
-  "studentName": "string"
-}`;
+Response Requirement:
+- Return ONLY valid JSON.
+- Provide answers for exactly ${totalQuestions} questions.
+- Extract Student ID (Number) and Name if visible on the sheet.`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] } },
-          { text: `Extract answers for 1 to ${totalQuestions}. Do not provide any feedback about image quality, just the data.` }
+          { text: `Extract answers for questions 1 to ${totalQuestions}. Scan for student metadata if available.` }
         ]
       },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0,
+        temperature: 0.1, // ปรับเล็กน้อยเพื่อให้มีความยืดหยุ่นในการมองภาพกากบาทที่จาง
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -99,7 +86,7 @@ Response must be strictly valid JSON:
                 type: Type.OBJECT,
                 properties: {
                   id: { type: Type.INTEGER },
-                  marked: { type: Type.STRING, nullable: true }
+                  marked: { type: Type.STRING, nullable: true, description: "Choices: '1', '2', '3', '4', or 'multiple'" }
                 },
                 required: ["id", "marked"]
               }
@@ -112,9 +99,12 @@ Response must be strictly valid JSON:
       }
     });
 
-    if (!response || !response.text) throw new Error("No response");
+    const resultText = response.text;
+    if (!resultText) throw new Error("Empty response from AI");
     
-    const data = JSON.parse(cleanJsonResponse(response.text));
+    const cleanedJson = cleanJsonResponse(resultText);
+    const data = JSON.parse(cleanedJson);
+    
     const answers: Choice[] = new Array(totalQuestions).fill(null);
     
     if (data.questions && Array.isArray(data.questions)) {
@@ -132,7 +122,13 @@ Response must be strictly valid JSON:
       studentName: data.studentName || ""
     };
   } catch (err: any) {
-    console.error("Analysis Error:", err);
+    console.error("Gemini Analysis Error Detail:", err);
+    
+    // ตรวจสอบ Error พิเศษ เช่น Rate Limit
+    if (err.message?.includes("429")) {
+      return { answers: [], error: "ระบบใช้งานเกินขีดจำกัดชั่วคราว (Rate Limit) กรุณารอ 1 นาทีแล้วลองใหม่" };
+    }
+
     return { 
       answers: [], 
       error: "AI ประมวลผลภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง หรือขยับกล้องให้ขนานกับกระดาษมากขึ้น" 
