@@ -31,7 +31,7 @@ export const analyzeAnswerSheet = async (
   base64Image: string,
   totalQuestions: number,
   isKey: boolean = false,
-  customApiKey?: string // รองรับการรับ Key จาก UI
+  customApiKey?: string
 ): Promise<{ 
   answers: Choice[], 
   studentId?: string, 
@@ -40,7 +40,6 @@ export const analyzeAnswerSheet = async (
   isAuthError?: boolean
 }> => {
   try {
-    // ใช้ Custom Key จาก UI หากมี มิฉะนั้นใช้จาก Environment
     const apiKey = customApiKey || process.env.API_KEY;
     
     if (!apiKey) {
@@ -128,13 +127,23 @@ Response Requirement:
     };
   } catch (err: any) {
     console.error("Gemini Analysis Error Detail:", err);
-    if (err.message?.includes("401") || err.message?.includes("key") || err.message?.includes("not found")) {
-      return { 
-        answers: [], 
-        error: "API Key ไม่ถูกต้องหรือไม่มีสิทธิ์ใช้งาน (Auth Error)", 
-        isAuthError: true 
-      };
+    
+    const errorMsg = err.message || "";
+    
+    // ดักจับ Error เฉพาะทางเพื่อให้ผู้ใช้เข้าใจปัญหา
+    if (errorMsg.includes("401") || errorMsg.includes("API_KEY_INVALID") || errorMsg.includes("not found")) {
+      return { answers: [], error: "API Key ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง", isAuthError: true };
     }
-    return { answers: [], error: "AI ประมวลผลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" };
+    if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED")) {
+      return { answers: [], error: "โควต้าการใช้งานหมด (Too many requests) กรุณารอสักครู่แล้วลองใหม่" };
+    }
+    if (errorMsg.includes("403") || errorMsg.includes("PERMISSION_DENIED")) {
+      return { answers: [], error: "ถูกปฏิเสธสิทธิ์การเข้าถึง (อาจเพราะยังไม่ได้เปิด Billing ใน Google Cloud)", isAuthError: true };
+    }
+    if (errorMsg.includes("fetch")) {
+      return { answers: [], error: "ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้ กรุณาตรวจสอบเครือข่าย" };
+    }
+    
+    return { answers: [], error: "AI ประมวลผลไม่สำเร็จ: " + (errorMsg.length > 50 ? errorMsg.substring(0, 50) + "..." : errorMsg) };
   }
 };

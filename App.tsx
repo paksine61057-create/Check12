@@ -25,7 +25,7 @@ const Navbar: React.FC<NavbarProps> = ({ onOpenKey }) => (
         </svg>
         <span className="text-xs font-bold hidden xs:inline">ตั้งค่า API Key</span>
       </button>
-      <div className="hidden sm:block text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v4.0</div>
+      <div className="hidden sm:block text-[10px] bg-blue-700 px-2 py-1 rounded border border-blue-400 font-mono">v4.1 Fix</div>
     </div>
   </nav>
 );
@@ -120,6 +120,7 @@ const App: React.FC = () => {
             setIsAuthError(true);
             break;
           }
+          // ถ้าแผ่นนี้พังให้ข้ามไปแผ่นถัดไป (ยกเว้นเรื่องคีย์)
           continue;
         }
         const answers: QuestionResult[] = data.answers.map((ans, idx) => ({
@@ -202,8 +203,11 @@ const App: React.FC = () => {
                 </button>
               </div>
             </form>
-            <div className="mt-6 text-center">
-              <a href="https://ai.google.dev/" target="_blank" rel="noreferrer" className="text-xs text-blue-500 underline">วิธีขอรับ API Key ฟรี</a>
+            <div className="mt-6 p-4 bg-yellow-50 rounded-xl text-xs text-yellow-800 leading-relaxed border border-yellow-100">
+              <strong>คำแนะนำ:</strong> หากพบปัญหา "ประมวลผลไม่สำเร็จ" ให้ตรวจสอบว่าคุณได้ทำการ <strong>เปิด Billing</strong> ในโปรเจกต์ Google Cloud แล้วหรือยัง
+            </div>
+            <div className="mt-4 text-center">
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-xs text-blue-500 underline">ขอรับ API Key ที่นี่</a>
             </div>
           </div>
         </div>
@@ -212,21 +216,33 @@ const App: React.FC = () => {
       <main className="max-w-xl mx-auto p-4 space-y-4">
         
         {errorMessage && (
-          <div className="bg-red-500 text-white p-4 rounded-2xl shadow-lg animate-in fade-in slide-in-from-top-4 duration-300">
-            <div className="flex justify-between items-start">
-              <div className="text-sm font-bold">{errorMessage}</div>
-              <button onClick={() => setErrorMessage(null)} className="ml-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
+          <div className="bg-white border-2 border-red-100 p-5 rounded-3xl shadow-xl animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="flex gap-3">
+              <div className="bg-red-100 p-2 rounded-full h-fit">
+                <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-black text-red-600 mb-1">พบข้อผิดพลาด</div>
+                <div className="text-xs text-slate-600 font-medium leading-relaxed">{errorMessage}</div>
+                
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button 
+                    onClick={() => setErrorMessage(null)} 
+                    className="text-xs bg-slate-100 text-slate-500 px-3 py-1.5 rounded-lg font-bold hover:bg-slate-200"
+                  >
+                    ปิดการแจ้งเตือน
+                  </button>
+                  {isAuthError && (
+                    <button 
+                      onClick={() => setIsKeyModalOpen(true)}
+                      className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-md"
+                    >
+                      🔄 ตั้งค่า API Key ใหม่
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-            {isAuthError && (
-              <button 
-                onClick={() => setIsKeyModalOpen(true)}
-                className="mt-3 w-full bg-white/20 hover:bg-white/30 py-2 rounded-xl text-xs font-black transition-colors"
-              >
-                🔄 แก้ไข API Key
-              </button>
-            )}
           </div>
         )}
 
@@ -234,7 +250,8 @@ const App: React.FC = () => {
           <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-[100] flex flex-col items-center justify-center p-6 text-center">
             <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
             <p className="text-xl font-black text-blue-900">กำลังประมวลผลด้วย AI...</p>
-            {processingProgress.total > 0 && <p className="text-blue-600 font-bold mt-2">แผ่นที่ {processingProgress.current} จาก {processingProgress.total}</p>}
+            <p className="text-slate-500 text-sm mt-2 max-w-xs">ขั้นตอนนี้อาจใช้เวลาสักครู่ขึ้นอยู่กับความเร็วอินเทอร์เน็ต</p>
+            {processingProgress.total > 0 && <p className="text-blue-600 font-bold mt-4 bg-blue-50 px-4 py-2 rounded-full">แผ่นที่ {processingProgress.current} จาก {processingProgress.total}</p>}
           </div>
         )}
 
